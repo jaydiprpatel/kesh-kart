@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "704140474629",
+    "project_id": "kesh-kart-2eaa7",
+    "storage_bucket": "kesh-kart-2eaa7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:704140474629:android:cb9a03a66085693609df6c",
+        "android_client_info": {
+          "package_name": "com.example.kesh_kart"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDh6lq0S55B3rr9cO-WIQFmniYPCIrJvYc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
