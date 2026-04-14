@@ -1,3 +1,4 @@
+import 'package:shimmer/shimmer.dart'; // Added
 import 'package:flutter/material.dart';
 
 Route slideUpRoute(Widget page) {
@@ -42,3 +43,46 @@ Widget socialLoginButton({
 }
 
 //Button with animated gradient border
+
+class ShimmerListTile extends StatelessWidget {
+  const ShimmerListTile({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[900]!,
+      highlightColor: Colors.grey[800]!,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(width: 100, height: 16, color: Colors.white),
+                  const SizedBox(height: 8),
+                  Container(width: 200, height: 12, color: Colors.white),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

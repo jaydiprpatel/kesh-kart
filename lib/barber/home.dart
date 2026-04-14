@@ -1,9 +1,12 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:kesh_kart/barber/profile.dart';
-import 'package:kesh_kart/commons.dart';
+import 'package:kesh_kart/backend/baas_client.dart';
+import 'package:kesh_kart/barber/subscription_screen.dart';
+import 'package:kesh_kart/barber/reviews.dart';
+import 'package:kesh_kart/barber/widgets/dashboard_components.dart';
+import 'package:kesh_kart/barber/pro_dashboard.dart';
+import 'package:kesh_kart/barber/barber_verification.dart';
+import 'package:kesh_kart/login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:shimmer/shimmer.dart';
 
 class BarberHome extends StatefulWidget {
   const BarberHome({super.key});
@@ -18,6 +21,11 @@ class _BarberHomeState extends State<BarberHome> {
   List<String> shopPhotos = [];
   String barberID = '';
   bool isBarberLoaded = false;
+  int refreshKey = 0;
+  String currentStatus = 'Available';
+  String verificationStatus = 'unverified';
+  String subscriptionStatus = 'none';
+  bool proAccessActive = false;
 
   List<DateTime> upcomingDays = [];
   DateTime selectedDate = DateTime.now();
@@ -36,15 +44,51 @@ class _BarberHomeState extends State<BarberHome> {
   Future<void> _loadBarberDetails() async {
     final prefs = await SharedPreferences.getInstance();
 
+    // Ensure SDK session is active (Sync with AuthProvider)
+    if (!BaasClient.instance.sdk.auth.isAuthenticated) {
+      debugPrint("⚠️ Auth Desync Detected in BarberHome. Redirecting to Login.");
+      await prefs.setBool('isLoggedIn', false);
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LogInScreen()),
+          (route) => false,
+        );
+      }
+      return;
+    }
+
     barberName = prefs.getString('barberName') ?? 'Barber';
     isActive = prefs.getBool('isActive') ?? false;
     shopPhotos = prefs.getStringList('shopPhotos') ?? [];
     barberID = prefs.getString('userId') ?? '';
+    currentStatus = prefs.getString('liveStatus') ?? 'Available';
+
+    try {
+      final userSnap = await BaasClient.collection('users').doc(barberID).get();
+      if (userSnap.exists) {
+        final userData = Map<String, dynamic>.from(userSnap.data() as Map<String, dynamic>);
+        verificationStatus = userData['verificationStatus'] ?? 'unverified';
+        subscriptionStatus = userData['subscriptionStatus'] ?? 'none';
+        proAccessActive = userData['proAccessActive'] == true;
+      }
+    } catch (e) {
+      debugPrint("Error loading verification status: $e");
+    }
 
     if (mounted) {
       setState(() {
         isBarberLoaded = true;
       });
+    }
+  }
+
+  Future<void> _openSubscriptionFlow() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+    );
+    if (result == true) {
+      await _loadBarberDetails();
     }
   }
 
@@ -58,125 +102,212 @@ class _BarberHomeState extends State<BarberHome> {
           backgroundColor: Colors.black,
           elevation: 0,
           automaticallyImplyLeading: false,
-          title: Text(
-            'Hello, $barberName',
+          title: const Text(
+            'Barber Dashboard',
             style: TextStyle(
               fontFamily: 'Poppins',
               color: Colors.white,
               fontWeight: FontWeight.bold,
-              fontSize: 20,
             ),
           ),
-
           actions: [
-            Switch(
-              value: isActive,
-              onChanged: (val) async {
-                setState(() => isActive = val);
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('isActive', val);
-                await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(barberID)
-                    .update({'isActive': val});
+            IconButton(
+              tooltip: 'Business Insights',
+              icon: const Icon(
+                Icons.analytics_outlined,
+                color: Colors.greenAccent,
+              ),
+              onPressed: () {
+                if (!proAccessActive) {
+                  _openSubscriptionFlow();
+                  return;
+                }
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ProDashboardScreen(barberId: barberID),
+                  ),
+                );
               },
-              activeColor: Colors.green,
-              inactiveThumbColor: Colors.grey,
             ),
-            const Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: Text('Active', style: TextStyle(color: Colors.white)),
+            IconButton(
+              icon: const Icon(Icons.star_outline, color: Colors.yellowAccent),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BarberReviewsScreen(barberId: barberID),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(width: 8),
+            const SizedBox(width: 8),
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.circle,
+                size: 14,
+                color: _getLiveStatusColor(currentStatus),
+              ),
+              onSelected: (String status) async {
+                setState(() => currentStatus = status);
+                await BaasClient.collection('users').doc(barberID).update({
+                  'liveStatus': status,
+                  'isActive': status != 'Away',
+                });
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('liveStatus', status);
+                await prefs.setBool('isActive', status != 'Away');
+              },
+              itemBuilder:
+                  (context) => [
+                    _buildStatusItem('Available', Colors.green),
+                    _buildStatusItem('Busy', Colors.amber),
+                    _buildStatusItem('Away', Colors.grey),
+                  ],
+            ),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Text(
+                currentStatus,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
             ),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: ListView(
-            children: [
-              _buildEarningsCard(),
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  _buildSectionTitle('Appointments'),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children:
-                              upcomingDays.map((date) {
-                                final isSelected =
-                                    date.day == selectedDate.day &&
-                                    date.month == selectedDate.month &&
-                                    date.year == selectedDate.year;
-
-                                String label;
-                                final index = upcomingDays.indexOf(date);
-                                if (index == 0) {
-                                  label = "Today";
-                                } else if (index == 1) {
-                                  label = "Tomorrow";
-                                } else {
-                                  label =
-                                      "${date.day} ${_monthName(date.month)}";
-                                }
-
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: ChoiceChip(
-                                    label: Text(
-                                      label,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color:
-                                            isSelected
-                                                ? Colors.black
-                                                : Colors.white,
-                                      ),
-                                    ),
-                                    selected: isSelected,
-                                    selectedColor: Colors.greenAccent,
-                                    backgroundColor:
-                                        Colors
-                                            .black, // ← set unselected chip color to black
-                                    shape: StadiumBorder(
-                                      side: BorderSide(
-                                        color:
-                                            isSelected
-                                                ? Colors.greenAccent
-                                                : Colors.white10,
-                                      ),
-                                    ),
-                                    onSelected: (_) {
-                                      setState(() {
-                                        selectedDate = date;
-                                      });
-                                    },
-                                  ),
-                                );
-                              }).toList(),
-                        ),
-                      ),
+        body: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: () async {
+                await _loadBarberDetails();
+                setState(() {
+                  refreshKey++;
+                });
+              },
+              backgroundColor: Colors.black,
+              color: const Color(0xFF00D189),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: ListView(
+                  children: [
+                    _buildVerificationNudge(),
+                    _buildSubscriptionNudge(),
+                    EarningsSummaryCard(
+                      key: ValueKey('earnings_$refreshKey'),
+                      barberId: barberID,
+                      verificationStatus: verificationStatus,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 20),
+                    TopServicesSection(
+                      key: ValueKey('services_$refreshKey'),
+                      barberId: barberID,
+                    ),
+                    const SizedBox(height: 20),
+                    PendingRequestsSection(
+                      key: ValueKey('pending_$refreshKey'),
+                      barberId: barberID,
+                      verificationStatus: verificationStatus,
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        _buildSectionTitle('Appointments'),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(
+                            height: 48,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children:
+                                    upcomingDays.map((date) {
+                                      final isSelected =
+                                          date.day == selectedDate.day &&
+                                          date.month == selectedDate.month &&
+                                          date.year == selectedDate.year;
+
+                                      String label;
+                                      final index = upcomingDays.indexOf(date);
+                                      if (index == 0) {
+                                        label = "Today";
+                                      } else if (index == 1) {
+                                        label = "Tomorrow";
+                                      } else {
+                                        label =
+                                            "${date.day} ${_monthName(date.month)}";
+                                      }
+
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: 8,
+                                        ),
+                                        child: ChoiceChip(
+                                          label: Text(
+                                            label,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color:
+                                                  isSelected
+                                                      ? Colors.black
+                                                      : Colors.white,
+                                            ),
+                                          ),
+                                          selected: isSelected,
+                                          selectedColor: const Color(
+                                            0xFF00D189,
+                                          ),
+                                          backgroundColor:
+                                              Colors
+                                                  .black, // ← set unselected chip color to black
+                                          shape: StadiumBorder(
+                                            side: BorderSide(
+                                              color:
+                                                  isSelected
+                                                      ? const Color(0xFF00D189)
+                                                      : Colors.white10,
+                                            ),
+                                          ),
+                                          onSelected: (_) {
+                                            setState(() {
+                                              selectedDate = date;
+                                            });
+                                          },
+                                        ),
+                                      );
+                                    }).toList(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Appointments List
+                    DashboardAppointmentsList(
+                      key: ValueKey('appointments_$refreshKey'),
+                      barberId: barberID,
+                      selectedDate: selectedDate,
+                      verificationStatus: verificationStatus,
+                    ),
+
+                    const SizedBox(height: 30),
+                    _buildSectionTitle('Quick Actions'),
+                    const SizedBox(height: 10),
+                    DashboardQuickActions(barberId: barberID),
+                    const SizedBox(height: 100), // Space for dock
+                  ],
+                ),
               ),
-              const SizedBox(height: 10),
-
-              // Appointments List
-              Expanded(child: _buildAppointmentsList()),
-
-              const SizedBox(height: 30),
-              _buildSectionTitle('Quick Actions'),
-              const SizedBox(height: 10),
-              _buildQuickActions(),
-            ],
-          ),
+            ),
+            Positioned(
+              bottom: 20,
+              left: 20,
+              right: 20,
+              child: DashboardQuickActionsDock(barberId: barberID),
+            ),
+          ],
         ),
       ),
     );
@@ -191,293 +322,6 @@ class _BarberHomeState extends State<BarberHome> {
         color: Colors.white,
         fontWeight: FontWeight.bold,
       ),
-    );
-  }
-
-  Widget _buildEarningsCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white10,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Earnings Today',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-          SizedBox(height: 6),
-          Text(
-            '₹ 1,850',
-            style: TextStyle(
-              fontSize: 22,
-              color: Colors.greenAccent,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAppointmentsList() {
-    if (!isBarberLoaded || barberID.isEmpty) {
-      return Column(
-        children: List.generate(2, (index) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Shimmer.fromColors(
-              baseColor: Colors.grey[800]!,
-              highlightColor: Colors.white12,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(height: 16, width: 150, color: Colors.white),
-                  const SizedBox(height: 8),
-                  Container(height: 14, width: 100, color: Colors.white),
-                  const SizedBox(height: 12),
-                  Container(height: 35, width: 120, color: Colors.white),
-                ],
-              ),
-            ),
-          );
-        }),
-      );
-    }
-
-    final start = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-    );
-
-    final end = start.add(const Duration(days: 1));
-
-    return StreamBuilder<QuerySnapshot>(
-      stream:
-          FirebaseFirestore.instance
-              .collection('appointments')
-              .where('barberId', isEqualTo: barberID)
-              .where('time', isGreaterThanOrEqualTo: start)
-              .where('time', isLessThan: end)
-              .orderBy('time')
-              .snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const CircularProgressIndicator();
-        }
-
-        final docs = snapshot.data!.docs;
-
-        if (docs.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 30),
-            child: Text(
-              'No appointments.',
-              style: TextStyle(color: Colors.white70),
-            ),
-          );
-        }
-
-        return Column(
-          children:
-              docs.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                final isCancelled = data['status'] == 'cancelled';
-                final rawTime = data['time'];
-                final time =
-                    rawTime is Timestamp
-                        ? rawTime.toDate()
-                        : DateTime.tryParse(rawTime.toString()) ??
-                            DateTime.now();
-
-                return Container(
-                  width: MediaQuery.of(context).size.width,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color:
-                        isCancelled
-                            ? Colors.white10.withOpacity(0.4)
-                            : Colors.white10,
-
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.greenAccent.withOpacity(0.2),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                '${data['customerName']} - ${TimeOfDay.fromDateTime(time).format(context)}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                ),
-                              ),
-                              if (isCancelled)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Text(
-                                    'Cancelled',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-
-                          IconButton(
-                            onPressed: () {
-                              _showCancelDialog(context, doc.id);
-                            },
-                            icon: const Icon(
-                              Icons.cancel,
-                              color: Colors.redAccent,
-                            ),
-                            tooltip: 'Cancel Appointment',
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 6),
-                      Text(
-                        data['service'],
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                      const SizedBox(height: 10),
-                      if (!isCancelled)
-                        Row(
-                          children: [
-                            ElevatedButton(
-                              onPressed: () async {
-                                await FirebaseFirestore.instance
-                                    .collection('appointments')
-                                    .doc(doc.id)
-                                    .update({'isDone': true});
-                                debugPrint(
-                                  'Notify customer: ${data['customerId']}',
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor:
-                                    data['isDone']
-                                        ? Colors.grey
-                                        : Colors.greenAccent,
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 8,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                              ),
-                              child: Text(
-                                data['isDone'] ? 'Completed' : 'Mark as Done',
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            OutlinedButton(
-                              onPressed: () {
-                                _showRescheduleDialog(context, doc.id, time);
-                              },
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Colors.greenAccent,
-                                ),
-                                foregroundColor: Colors.greenAccent,
-                              ),
-                              child: const Text("Reschedule"),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                );
-              }).toList(),
-        );
-      },
-    );
-  }
-
-  Widget _buildQuickActions() {
-    final actions = [
-      {'icon': Icons.person, 'label': 'Profile'},
-      {'icon': Icons.build, 'label': 'Services'},
-      {'icon': Icons.calendar_month, 'label': 'Appointments'},
-      {'icon': Icons.star, 'label': 'Reviews'},
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: actions.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 2.5,
-      ),
-      itemBuilder: (context, index) {
-        return InkWell(
-          onTap: () {
-            final action = actions[index]['label'];
-            if (action == 'Profile') {
-              Navigator.push(
-                context,
-                slideUpRoute(BarberProfileScreen(barberId: barberID)),
-              );
-            }
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    actions[index]['icon'] as IconData,
-                    color: Colors.white70,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    actions[index]['label']! as String,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -499,402 +343,189 @@ class _BarberHomeState extends State<BarberHome> {
     return months[month - 1];
   }
 
-  void _showRescheduleDialog(
-    BuildContext context,
-    String appointmentId,
-    DateTime currentTime,
-  ) {
-    DateTime newDateTime = currentTime;
-    int selectedQuickOption = -1;
-    String selectedReason = '';
-    bool isLoading = false;
+  Color _getLiveStatusColor(String status) {
+    if (status == 'Available') return Colors.green;
+    if (status == 'Busy') return Colors.amber;
+    return Colors.grey;
+  }
 
-    List<String> rescheduleReasons = [
-      "Running Late",
-      "Personal Emergency",
-      "Customer Request",
-      "Power/Network Issue",
-      "Other",
-    ];
+  PopupMenuItem<String> _buildStatusItem(String status, Color color) {
+    return PopupMenuItem(
+      value: status,
+      child: Row(
+        children: [
+          Icon(Icons.circle, size: 10, color: color),
+          const SizedBox(width: 8),
+          Text(status, style: const TextStyle(color: Colors.white)),
+        ],
+      ),
+    );
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            String formattedTime = TimeOfDay.fromDateTime(
-              newDateTime,
-            ).format(context);
-            String formattedDate =
-                "${newDateTime.day}/${newDateTime.month}/${newDateTime.year}";
+  Widget _buildVerificationNudge() {
+    if (verificationStatus == 'approved') return const SizedBox.shrink();
 
-            return AlertDialog(
-              backgroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+    bool isPending = verificationStatus == 'pending';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors:
+              isPending
+                  ? [
+                    Colors.blue.withOpacity(0.2),
+                    Colors.blue.withOpacity(0.05),
+                  ]
+                  : [
+                    Colors.orange.withOpacity(0.2),
+                    Colors.orange.withOpacity(0.05),
+                  ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color:
+              isPending
+                  ? Colors.blue.withOpacity(0.3)
+                  : Colors.orange.withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                isPending ? Icons.hourglass_empty : Icons.warning_amber_rounded,
+                color: isPending ? Colors.blueAccent : Colors.orangeAccent,
               ),
-              title: const Text(
-                'Reschedule Appointment',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: SingleChildScrollView(
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Selected: $formattedDate at $formattedTime',
-                      style: const TextStyle(color: Colors.greenAccent),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Choice Chips for Quick Reschedule
-                    Wrap(
-                      spacing: 10,
-                      children: List.generate(3, (index) {
-                        final labels = [
-                          'After 1 hour',
-                          'After 2 hours',
-                          'Tomorrow same time',
-                        ];
-                        return ChoiceChip(
-                          label: Text(labels[index]),
-                          selected: selectedQuickOption == index,
-                          onSelected: (bool selected) {
-                            setState(() {
-                              selectedQuickOption = selected ? index : -1;
-                              if (selected) {
-                                if (index == 0) {
-                                  newDateTime = currentTime.add(
-                                    const Duration(hours: 1),
-                                  );
-                                }
-                                if (index == 1) {
-                                  newDateTime = currentTime.add(
-                                    const Duration(hours: 2),
-                                  );
-                                }
-                                if (index == 2) {
-                                  newDateTime = currentTime.add(
-                                    const Duration(days: 1),
-                                  );
-                                }
-                              }
-                            });
-                          },
-                          selectedColor: Colors.greenAccent,
-                          backgroundColor: Colors.black,
-                          labelStyle: TextStyle(
-                            color:
-                                selectedQuickOption == index
-                                    ? Colors.black
-                                    : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          shape: StadiumBorder(
-                            side: BorderSide(
-                              color:
-                                  selectedQuickOption == index
-                                      ? Colors.greenAccent
-                                      : Colors.white24,
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Date Picker Styled
-                    InkWell(
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: newDateTime,
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 30),
-                          ),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            selectedQuickOption = -1;
-                            newDateTime = DateTime(
-                              picked.year,
-                              picked.month,
-                              picked.day,
-                              newDateTime.hour,
-                              newDateTime.minute,
-                            );
-                          });
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                          horizontal: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          border: Border.all(color: Colors.white30),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(
-                              Icons.calendar_today,
-                              color: Colors.white70,
-                              size: 20,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Pick Date',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
+                      isPending
+                          ? "Verification Pending"
+                          : "Verification Required",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
                       ),
                     ),
-                    const SizedBox(height: 12),
-
-                    // Time Picker Styled
-                    InkWell(
-                      onTap: () async {
-                        final picked = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.fromDateTime(newDateTime),
-                        );
-                        if (picked != null) {
-                          setState(() {
-                            selectedQuickOption = -1;
-                            newDateTime = DateTime(
-                              newDateTime.year,
-                              newDateTime.month,
-                              newDateTime.day,
-                              picked.hour,
-                              picked.minute,
-                            );
-                          });
-                        }
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                          horizontal: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          border: Border.all(color: Colors.white30),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: const [
-                            Icon(
-                              Icons.access_time,
-                              color: Colors.white70,
-                              size: 20,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Pick Time',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isPending
+                          ? "We're reviewing your shop details. This usually takes less than 24 hours."
+                          : "Verify your shop to start accepting bookings and unlock rewards.",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 13,
                       ),
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    // Dropdown for Reason
-                    DropdownButtonFormField<String>(
-                      value: selectedReason.isNotEmpty ? selectedReason : null,
-                      dropdownColor: Colors.black,
-                      decoration: InputDecoration(
-                        labelText: "Reason for Reschedule",
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white30),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.greenAccent),
-                        ),
-                      ),
-                      style: const TextStyle(color: Colors.white),
-                      items:
-                          rescheduleReasons.map((reason) {
-                            return DropdownMenuItem(
-                              value: reason,
-                              child: Text(reason),
-                            );
-                          }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          selectedReason = value ?? '';
-                        });
-                      },
                     ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Colors.white70),
+            ],
+          ),
+          if (!isPending) ...[
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () async {
+                final result = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder:
+                        (_) => BarberVerificationScreen(barberId: barberID),
                   ),
+                );
+                if (result == true) {
+                  _loadBarberDetails();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orangeAccent,
+                foregroundColor: Colors.black,
+                minimumSize: const Size(double.infinity, 45),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                TextButton(
-                  onPressed:
-                      selectedReason.isEmpty || isLoading
-                          ? null
-                          : () async {
-                            setState(() => isLoading = true);
-
-                            await FirebaseFirestore.instance
-                                .collection('appointments')
-                                .doc(appointmentId)
-                                .update({
-                                  'time': newDateTime,
-                                  'rescheduledAt': Timestamp.now(),
-                                  'reasonForReschedule': selectedReason,
-                                });
-
-                            Navigator.pop(context);
-
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("Appointment rescheduled"),
-                              ),
-                            );
-                          },
-                  child:
-                      isLoading
-                          ? Shimmer.fromColors(
-                            baseColor: Colors.grey[700]!,
-                            highlightColor: Colors.white,
-                            child: const Text(
-                              "Rescheduling...",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          )
-                          : const Text(
-                            'Confirm',
-                            style: TextStyle(color: Colors.greenAccent),
-                          ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+              ),
+              child: const Text(
+                "Verify Shop Now",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  void _showCancelDialog(BuildContext context, String appointmentId) {
-    String selectedReason = '';
-    bool isCancelling = false;
+  Widget _buildSubscriptionNudge() {
+    if (verificationStatus != 'approved' || proAccessActive) {
+      return const SizedBox.shrink();
+    }
 
-    final reasons = [
-      "Customer no-show",
-      "Barber unavailable",
-      "Double booking",
-      "Customer requested cancellation",
-      "Other",
-    ];
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              backgroundColor: Colors.black,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF00D189).withOpacity(0.18),
+            Colors.black.withOpacity(0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF00D189).withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.workspace_premium_outlined, color: Color(0xFF00D189)),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  "Subscription Required",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Your shop is verified, but customers will only see you after Pro access is active.",
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.72),
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _openSubscriptionFlow,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF00D189),
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 45),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              title: const Text(
-                'Cancel Appointment',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: DropdownButtonFormField<String>(
-                value: selectedReason.isNotEmpty ? selectedReason : null,
-                dropdownColor: Colors.black,
-                decoration: InputDecoration(
-                  labelText: "Reason for Cancellation",
-                  labelStyle: const TextStyle(color: Colors.white70),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white30),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.redAccent),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-                items:
-                    reasons.map((reason) {
-                      return DropdownMenuItem(
-                        value: reason,
-                        child: Text(reason),
-                      );
-                    }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedReason = value ?? '';
-                  });
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Back',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                ),
-                TextButton(
-                  onPressed:
-                      selectedReason.isEmpty || isCancelling
-                          ? null
-                          : () async {
-                            setState(() => isCancelling = true);
-                            await FirebaseFirestore.instance
-                                .collection('appointments')
-                                .doc(appointmentId)
-                                .update({
-                                  'status': 'cancelled',
-                                  'cancelledAt': Timestamp.now(),
-                                  'cancelReason': selectedReason,
-                                });
-
-                            Navigator.pop(context);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("Appointment cancelled"),
-                              ),
-                            );
-                          },
-                  child:
-                      isCancelling
-                          ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.redAccent,
-                            ),
-                          )
-                          : const Text(
-                            'Cancel Now',
-                            style: TextStyle(color: Colors.redAccent),
-                          ),
-                ),
-              ],
-            );
-          },
-        );
-      },
+            ),
+            child: const Text(
+              "Activate Pro Subscription",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

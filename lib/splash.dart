@@ -94,7 +94,22 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
             ),
-            SizedBox(height: 50),
+            const SizedBox(height: 5),
+            Shimmer.fromColors(
+              baseColor: Colors.grey[800]!,
+              highlightColor: Colors.white70,
+              child: const Text(
+                'Find Your Style',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 14,
+                  color: Colors.white70,
+                  letterSpacing: 2,
+                ),
+              ),
+            ),
+            const Spacer(),
+            const SizedBox(height: 50),
           ],
         ),
       ),

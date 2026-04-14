@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:kesh_kart/backend/baas_client.dart';
 
 class GroomingMenuScreen extends StatefulWidget {
   final String barberId;
@@ -12,15 +12,6 @@ class GroomingMenuScreen extends StatefulWidget {
 class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
   List<Map<String, dynamic>> services = [];
   bool isLoading = true;
-  final List<String> predefinedServices = [
-    'Haircut',
-    'Beard Trim',
-    'Facial',
-    'Head Massage',
-    'Shave',
-    'Hair Color',
-    'Other',
-  ];
 
   @override
   void initState() {
@@ -29,37 +20,42 @@ class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
   }
 
   Future<void> _loadServices() async {
-    final doc =
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.barberId)
-            .get();
-    if (doc.exists && doc.data()!.containsKey('services')) {
-      final data = List<Map<String, dynamic>>.from(doc['services']);
-      setState(() {
-        services = data;
-        isLoading = false;
-      });
-    } else {
+    try {
+      final doc =
+          await BaasClient.collection('users').doc(widget.barberId).get();
+      if (doc.exists && doc.data()!.containsKey('services')) {
+        setState(() {
+          services = List<Map<String, dynamic>>.from(doc['services']);
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      debugPrint("Error loading services: $e");
       setState(() => isLoading = false);
     }
   }
 
   Future<void> _saveServices() async {
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.barberId)
-        .update({'services': services});
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Grooming menu updated successfully')),
-    );
+    try {
+      await BaasClient.collection(
+        'users',
+      ).doc(widget.barberId).update({'services': services});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Grooming menu updated successfully')),
+        );
+      }
+    } catch (e) {
+      debugPrint("Error saving services: $e");
+    }
   }
 
   void _editService(int? index) {
     final isNew = index == null;
-
-    final List<String> predefinedServices = [
-      'Hair cut',
+    final List<String> predefinedNames = [
+      'Haircut',
       'Beard Trim',
       'Facial',
       'Head Massage',
@@ -67,190 +63,320 @@ class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
       'Hair Color',
       'Other',
     ];
+    final List<String> categoriesList = [
+      'General',
+      'Hair',
+      'Beard',
+      'Face',
+      'Massage',
+      'Combos',
+      'Other',
+    ];
 
-    String selectedService = isNew ? '' : services[index]['name'];
-    bool isOther = false;
+    String selectedName = isNew ? '' : services[index]['name'];
+    String selectedCategory =
+        isNew ? 'Hair' : (services[index]['category'] ?? 'General');
+    int selectedDuration =
+        isNew ? 30 : (services[index]['duration'] as int? ?? 30);
+    List<Map<String, dynamic>> variants =
+        isNew
+            ? []
+            : List<Map<String, dynamic>>.from(
+              services[index]['variants'] ?? [],
+            );
 
-    final TextEditingController nameController = TextEditingController();
-
-    final TextEditingController priceController = TextEditingController(
-      text: isNew ? '' : services[index]['price'].toString(),
+    final nameController = TextEditingController(text: selectedName);
+    final descController = TextEditingController(
+      text: isNew ? '' : (services[index]['description'] ?? ''),
     );
-
-    final List<String> alreadyUsed =
-        services
-            .map((s) => s['name'] as String)
-            .where((s) => s != selectedService) // allow editing same value
-            .toList();
-
-    final List<String> availableOptions =
-        predefinedServices.where((s) => !alreadyUsed.contains(s)).toList();
+    final priceController = TextEditingController(
+      text:
+          isNew
+              ? ''
+              : (services[index]['price']?.toString() ?? '').replaceAll(
+                '*',
+                '',
+              ),
+    );
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.grey[900],
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder:
-          (_) => Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-              left: 20,
-              right: 20,
-              top: 20,
-            ),
-            child: SingleChildScrollView(
-              child: StatefulBuilder(
-                builder:
-                    (context, setModalState) => Column(
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setModalState) => Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                    left: 20,
+                    right: 20,
+                    top: 20,
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         DropdownButtonFormField<String>(
                           value:
-                              selectedService.isNotEmpty && !isOther
-                                  ? selectedService
-                                  : null,
-                          items: [
-                            const DropdownMenuItem(
-                              value: null,
-                              child: Text("Choose service"),
-                            ),
-                            ...availableOptions.map((name) {
-                              return DropdownMenuItem(
-                                value: name,
-                                child: Text(name),
-                              );
-                            }),
-                          ],
+                              predefinedNames.contains(selectedName)
+                                  ? selectedName
+                                  : 'Other',
+                          items:
+                              predefinedNames
+                                  .map(
+                                    (n) => DropdownMenuItem(
+                                      value: n,
+                                      child: Text(n),
+                                    ),
+                                  )
+                                  .toList(),
                           dropdownColor: Colors.grey[900],
                           style: const TextStyle(color: Colors.white),
                           decoration: const InputDecoration(
-                            labelText: 'Select Service',
+                            labelText: 'Service Type',
                             labelStyle: TextStyle(color: Colors.white70),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(color: Colors.white54),
+                          ),
+                          onChanged:
+                              (val) => setModalState(() {
+                                selectedName = val ?? '';
+                                if (selectedName != 'Other') {
+                                  nameController.text = selectedName;
+                                }
+                              }),
+                        ),
+                        if (selectedName == 'Other')
+                          TextField(
+                            controller: nameController,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              labelText: 'Custom Name',
                             ),
                           ),
-                          onChanged: (val) {
-                            setState(() {
-                              selectedService = val ?? '';
-                              if (selectedService == 'Other') {
-                                isOther = true;
-                              } else {
-                                isOther = false;
-                              }
-                            });
-                            setModalState(() {}); // update inside modal
-                          },
+                        DropdownButtonFormField<String>(
+                          value: selectedCategory,
+                          items:
+                              categoriesList
+                                  .map(
+                                    (c) => DropdownMenuItem(
+                                      value: c,
+                                      child: Text(c),
+                                    ),
+                                  )
+                                  .toList(),
+                          dropdownColor: Colors.grey[900],
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            labelText: 'Category',
+                          ),
+                          onChanged:
+                              (val) => setModalState(
+                                () => selectedCategory = val ?? 'General',
+                              ),
                         ),
-                        isOther
-                            ? TextField(
-                              controller: nameController,
-                              enabled: isOther,
-                              style: TextStyle(
-                                color: isOther ? Colors.white : Colors.white54,
-                              ),
-                              decoration: InputDecoration(
-                                labelText: 'Custom Service Name',
-                                labelStyle: TextStyle(
-                                  color:
-                                      isOther ? Colors.white70 : Colors.white38,
-                                ),
-                                enabledBorder: const UnderlineInputBorder(
-                                  borderSide: BorderSide(color: Colors.white54),
-                                ),
-                                disabledBorder: const UnderlineInputBorder(
-                                  borderSide: BorderSide(color: Colors.white30),
-                                ),
-                              ),
-                            )
-                            : SizedBox(),
-
                         TextField(
                           controller: priceController,
                           style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
-                            labelText: 'Price (₹)',
-                            labelStyle: TextStyle(color: Colors.white70),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(color: Colors.white54),
-                            ),
+                            labelText: 'Base Price (₹)',
                           ),
+                        ),
+                        TextField(
+                          controller: descController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            labelText: 'Description',
+                          ),
+                        ),
+                        DropdownButtonFormField<int>(
+                          value: selectedDuration,
+                          items:
+                              [15, 30, 45, 60, 90, 120]
+                                  .map(
+                                    (m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text("$m Min"),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (v) => setModalState(() => selectedDuration = v!),
+                          dropdownColor: Colors.grey[900],
+                          style: const TextStyle(color: Colors.white),
                         ),
                         const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: () async {
-                            final newService = {
-                              'name':
-                                  isOther
-                                      ? nameController.text.trim()
-                                      : selectedService,
-                              'price': priceController.text.trim(),
-                            };
-
-                            if (newService['name']!.isEmpty ||
-                                newService['price']!.isEmpty) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Please fill all fields'),
-                                ),
-                              );
-                              return;
-                            }
-
-                            setState(() {
-                              if (isNew) {
-                                services.add(newService);
-                              } else {
-                                services[index] = newService;
-                              }
-                            });
-
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(widget.barberId)
-                                .update({'services': services});
-
-                            Navigator.pop(context);
-                          },
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.greenAccent,
-                            foregroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 4,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: const Text('Save'),
+                        _buildVariantManager(
+                          ctx,
+                          variants,
+                          (v) => setModalState(() => variants = v),
                         ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              if (nameController.text.isEmpty ||
+                                  (variants.isEmpty &&
+                                      priceController.text.isEmpty)) {
+                                return;
+                              }
+                              final finalPrice =
+                                  variants.isNotEmpty
+                                      ? "*${variants.map((v) => double.tryParse(v['price'].toString()) ?? 0).reduce((a, b) => a < b ? a : b)}"
+                                      : priceController.text;
+                              final newService = {
+                                'name': nameController.text.trim(),
+                                'category': selectedCategory,
+                                'price': finalPrice,
+                                'duration': selectedDuration,
+                                'description': descController.text.trim(),
+                                'variants': variants,
+                              };
+                              setState(() {
+                                if (isNew) {
+                                  services.add(newService);
+                                } else {
+                                  services[index] = newService;
+                                }
+                              });
+                              _saveServices();
+                              Navigator.pop(ctx);
+                            },
+                            child: const Text("Save Service"),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
                       ],
                     ),
-              ),
-            ),
+                  ),
+                ),
           ),
     );
   }
 
-  Widget _getServiceIcon(String name) {
-    final lower = name.toLowerCase();
-    if (lower.contains('hair')) {
-      return Image.asset('assets/images/haircut.png', height: 70);
-    } else if (lower.contains('beard')) {
-      return Image.asset('assets/images/haircut.png', height: 40);
-    } else if (lower.contains('facial')) {
-      return Image.asset('assets/images/haircut.png', height: 40);
-    }
-    return Image.asset('assets/images/haircut.png', height: 40);
+  Widget _buildVariantManager(
+    BuildContext context,
+    List<Map<String, dynamic>> variants,
+    Function(List<Map<String, dynamic>>) onUpdate,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              "Styles / Brands",
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            TextButton.icon(
+              onPressed:
+                  () => _showAddVariantDialog(context, (v) {
+                    variants.add(v);
+                    onUpdate(variants);
+                  }),
+              icon: const Icon(Icons.add, size: 16, color: Colors.greenAccent),
+              label: const Text(
+                "Add Option",
+                style: TextStyle(color: Colors.greenAccent),
+              ),
+            ),
+          ],
+        ),
+        ...variants.asMap().entries.map(
+          (e) => ListTile(
+            dense: true,
+            title: Text(
+              e.value['name'],
+              style: const TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              "₹${e.value['price']} • ${e.value['duration']}m",
+              style: const TextStyle(color: Colors.white54),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.close, color: Colors.redAccent, size: 16),
+              onPressed: () {
+                variants.removeAt(e.key);
+                onUpdate(variants);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showAddVariantDialog(
+    BuildContext context,
+    Function(Map<String, dynamic>) onAdd,
+  ) {
+    final nameC = TextEditingController();
+    final priceC = TextEditingController();
+    int dur = 30;
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (ctx, setS) => AlertDialog(
+                  backgroundColor: Colors.grey[900],
+                  title: const Text(
+                    "Add Option",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameC,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(labelText: "Name"),
+                      ),
+                      TextField(
+                        controller: priceC,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(labelText: "Price"),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("Cancel"),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        if (nameC.text.isEmpty || priceC.text.isEmpty) return;
+                        onAdd({
+                          'name': nameC.text,
+                          'price': priceC.text,
+                          'duration': dur,
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      child: const Text("Add"),
+                    ),
+                  ],
+                ),
+          ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (var s in services) {
+      final cat = s['category'] ?? 'General';
+      grouped.putIfAbsent(cat, () => []).add(s);
+    }
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -259,160 +385,116 @@ class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
           style: TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.black,
-        actions: [
-          IconButton(
-            onPressed: _saveServices,
-            icon: const Icon(Icons.save, color: Colors.white),
-          ),
-        ],
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body:
           isLoading
               ? const Center(
-                child: CircularProgressIndicator(color: Colors.white),
+                child: CircularProgressIndicator(color: Colors.greenAccent),
               )
               : services.isEmpty
-              ? Center(
-                child: Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white24, width: 1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.white54, width: 1.5),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.add,
-                          size: 30,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Your Grooming Menu is empty.',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Tap + to add your first service!',
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                    ],
-                  ),
+              ? const Center(
+                child: Text(
+                  "Menu is empty",
+                  style: TextStyle(color: Colors.white30),
                 ),
               )
-              : ListView.builder(
-                itemCount: services.length,
-                padding: const EdgeInsets.all(10),
-                itemBuilder: (context, index) {
-                  final service = services[index];
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[900],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        _getServiceIcon(service['name']),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
+              : ListView(
+                padding: const EdgeInsets.all(16),
+                children:
+                    grouped.entries
+                        .map(
+                          (g) => Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      service['name'],
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontFamily: 'Popins',
-                                        fontSize: 23,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      '₹${service['price']}',
-                                      style: const TextStyle(
-                                        fontFamily: 'Popins',
-                                        color: Colors.white,
-                                        fontSize: 20,
-                                      ),
-                                    ),
-                                  ],
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: Text(
+                                  g.key.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  TextButton(
-                                    onPressed: () => _editService(index),
-                                    style: TextButton.styleFrom(
-                                      backgroundColor: Colors.greenAccent,
-                                      foregroundColor: Colors.black,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 4,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    child: const Text('Edit'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  TextButton(
-                                    onPressed:
-                                        () => setState(
-                                          () => services.removeAt(index),
-                                        ),
-                                    style: TextButton.styleFrom(
-                                      backgroundColor: Colors.greenAccent,
-                                      foregroundColor: Colors.black,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 4,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    child: const Text('Delete'),
-                                  ),
-                                ],
-                              ),
+                              ...g.value.map((s) => _buildServiceCard(s)),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                        )
+                        .toList(),
               ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _editService(null),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        child: const Icon(Icons.add),
+        backgroundColor: Colors.greenAccent,
+        child: const Icon(Icons.add, color: Colors.black),
+      ),
+    );
+  }
+
+  Widget _buildServiceCard(Map<String, dynamic> service) {
+    final List variants = service['variants'] ?? [];
+    final int idx = services.indexOf(service);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: ExpansionTile(
+        title: Text(
+          service['name'],
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          variants.isNotEmpty
+              ? "Starts ₹${service['price'].toString().replaceAll('*', '')}"
+              : "₹${service['price']} • ${service['duration']}m",
+          style: const TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        trailing: Wrap(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.greenAccent, size: 18),
+              onPressed: () => _editService(idx),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent, size: 18),
+              onPressed: () {
+                setState(() => services.removeAt(idx));
+                _saveServices();
+              },
+            ),
+          ],
+        ),
+        children: [
+          if (service['description']?.isNotEmpty ?? false)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                service['description'],
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ),
+          ...variants.map(
+            (v) => ListTile(
+              dense: true,
+              title: Text(
+                v['name'],
+                style: const TextStyle(color: Colors.white70),
+              ),
+              trailing: Text(
+                "₹${v['price']}",
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

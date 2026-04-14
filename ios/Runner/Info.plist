@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>We need access to your camera to detect your face shape and suggest hairstyles.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>We need access to your microphone for video capture features.</string>
 </dict>
 </plist>

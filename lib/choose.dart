@@ -53,88 +53,100 @@ class _ChooseState extends State<Choose> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: 50),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 60.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20.0,
+              ), // Reduced from 60
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  GestureDetector(
-                    onTap: () {
-                      // TODO: Navigate to Barber screen or register flow
-                      debugPrint("Barber selected");
-                      Navigator.of(context).push(
-                        slideUpRoute(
-                          RegisterScreen(
-                            userId: widget.userId,
-                            phoneNumber: widget.phoneNumber,
-                            role: 'Barber',
-                          ),
-                        ),
-                      );
-                    },
-                    child: Column(
-                      children: [
-                        AnimatedOpacity(
-                          opacity: _opacity,
-                          duration: Duration(seconds: 2),
-                          child: Image.asset(
-                            'assets/images/barber.png',
-                            height: 200,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        AnimatedOpacity(
-                          opacity: _opacity,
-                          duration: Duration(seconds: 2),
-                          child: Text(
-                            'Barber',
-                            style: TextStyle(
-                              fontFamily: 'Popins',
-                              fontSize: 20,
-                              color: Colors.white,
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        // TODO: Navigate to Barber screen or register flow
+                        debugPrint("Barber selected");
+                        Navigator.of(context).push(
+                          slideUpRoute(
+                            RegisterScreen(
+                              userId: widget.userId,
+                              phoneNumber: widget.phoneNumber,
+                              role: 'Barber',
                             ),
                           ),
-                        ),
-                      ],
+                        );
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedOpacity(
+                            opacity: _opacity,
+                            duration: Duration(seconds: 2),
+                            child: Image.asset(
+                              'assets/images/barber.png',
+                              height:
+                                  150, // Reduced from 200 to fit smaller screens better
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          AnimatedOpacity(
+                            opacity: _opacity,
+                            duration: Duration(seconds: 2),
+                            child: Text(
+                              'Barber',
+                              style: TextStyle(
+                                fontFamily: 'Popins',
+                                fontSize: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () {
-                      // TODO: Navigate to Barber screen or register flow
-                      debugPrint("Customer selected");
-                      Navigator.of(context).push(
-                        slideUpRoute(
-                          RegisterScreen(
-                            userId: widget.userId,
-                            phoneNumber: widget.phoneNumber,
-                            role: 'Customer',
-                          ),
-                        ),
-                      );
-                    },
-                    child: Column(
-                      children: [
-                        AnimatedOpacity(
-                          opacity: _opacity,
-                          duration: Duration(seconds: 2),
-                          child: Image.asset(
-                            'assets/images/customer.png',
-                            height: 200,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        AnimatedOpacity(
-                          opacity: _opacity,
-                          duration: Duration(seconds: 2),
-                          child: Text(
-                            'Customer',
-                            style: TextStyle(
-                              fontFamily: 'Popins',
-                              fontSize: 20,
-                              color: Colors.white,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        // TODO: Navigate to Barber screen or register flow
+                        debugPrint("Customer selected");
+                        Navigator.of(context).push(
+                          slideUpRoute(
+                            RegisterScreen(
+                              userId: widget.userId,
+                              phoneNumber: widget.phoneNumber,
+                              role: 'Customer',
                             ),
                           ),
-                        ),
-                      ],
+                        );
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AnimatedOpacity(
+                            opacity: _opacity,
+                            duration: Duration(seconds: 2),
+                            child: Image.asset(
+                              'assets/images/customer.png',
+                              height: 150, // Reduced from 200
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          AnimatedOpacity(
+                            opacity: _opacity,
+                            duration: Duration(seconds: 2),
+                            child: Text(
+                              'Customer',
+                              style: TextStyle(
+                                fontFamily: 'Popins',
+                                fontSize: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],

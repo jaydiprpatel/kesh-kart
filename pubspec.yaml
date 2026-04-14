@@ -22,12 +22,11 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  firebase_core: ^3.12.1
-  firebase_auth: ^5.5.1
-  cloud_firestore: ^5.6.5
-  firebase_analytics: ^11.4.4
-  firebase_crashlytics: ^4.3.4
   shimmer: ^3.0.0
+  provider: ^6.1.1
+  crypto: ^3.0.6
+
+  intl: ^0.19.0
   font_awesome_flutter: ^10.8.0
   glowy_borders: ^1.0.2
   pin_code_fields: ^8.0.1
@@ -36,10 +35,24 @@ dependencies:
   geolocator: ^13.0.4
   image_picker: ^1.1.2
   path_provider: ^2.1.5
-  firebase_storage: ^12.4.5
   permission_handler: ^12.0.0+1
+
   smooth_page_indicator: ^1.2.1
   flutter_launcher_icons: ^0.14.3
+  web_socket_channel: ^3.0.3
+  my_baas_sdk:
+    path: ../my_baas_sdk
+  geocoding: ^4.0.0
+  google_fonts: ^6.2.1
+  camera: ^0.11.0
+  google_mlkit_face_detection: ^0.11.0
+  url_launcher: ^6.3.2
+  flutter_local_notifications: ^18.0.1
+  firebase_core: ^3.10.1
+  firebase_auth: ^5.5.1
+  firebase_messaging: ^15.2.2
+  flutter_secure_storage: ^9.2.2
+  app_device_integrity: any
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -88,6 +101,19 @@ flutter:
     - assets/images/onboarding2.png
     - assets/images/onboarding3.png
     - assets/images/haircut.png
+    - assets/images/noise.png
+    - assets/styles/
+    - assets/faces/oval/
+    - assets/faces/round/
+    - assets/faces/square/
+    - assets/faces/heart/
+    - assets/faces/diamond/
+    - assets/hairstyles/textured_fade/
+    - assets/hairstyles/undercut/
+    - assets/hairstyles/pompadour/
+    - assets/hairstyles/quiff/
+    - assets/hairstyles/crew_cut/
+    - assets/hairstyles/side_part/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

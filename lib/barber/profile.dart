@@ -1,13 +1,12 @@
-import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
 import 'package:image_picker/image_picker.dart';
+import 'package:kesh_kart/backend/baas_client.dart';
 import 'package:kesh_kart/barber/service.dart';
 import 'package:kesh_kart/commons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
+import '../login.dart';
 
 class BarberProfileScreen extends StatefulWidget {
   final String barberId;
@@ -20,9 +19,10 @@ class BarberProfileScreen extends StatefulWidget {
 class _BarberProfileScreenState extends State<BarberProfileScreen> {
   String? name;
   String? address;
+  String? pincode;
   String? profileUrl;
-  double? rating;
-  int? totalReviews;
+  double? rating = 0.0;
+  int? totalReviews = 0;
   List<String> shopPhotos = [];
   bool isUploading = false;
   bool isLoading = true;
@@ -35,26 +35,43 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
   }
 
   Future<void> _loadProfile() async {
-    final doc =
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.barberId)
-            .get();
-    if (doc.exists) {
-      final data = doc.data()!;
-      debugPrint('Barber Profile: $data');
-      setState(() {
-        name = data['name'];
-        address = data['shopAddress'];
-        profileUrl = data['profileUrl'];
-        rating = data['averageRating']?.toDouble() ?? 0.0;
-        totalReviews = data['totalReviews'] ?? 0;
-        shopPhotos = List<String>.from(data['shopPhotos'] ?? []);
-        isLoading = false;
-      });
+    debugPrint("DEBUG PROFILE: Loading profile for ID: ${widget.barberId}");
+    if (widget.barberId.isEmpty) {
+      debugPrint("DEBUG PROFILE: Error - barberId is empty!");
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('barber_profile', doc.data().toString());
+    try {
+      final doc =
+          await BaasClient.collection('users').doc(widget.barberId).get();
+
+      debugPrint("DEBUG PROFILE: Doc exists? ${doc.exists}");
+
+      if (doc.exists) {
+        final data = doc.data()!;
+        debugPrint('Barber Profile Data: $data');
+        if (mounted) {
+          setState(() {
+            name = data['name'];
+            address = data['shopAddress'];
+            pincode = data['pincode']?.toString();
+            profileUrl = data['profileUrl'];
+            rating = data['averageRating']?.toDouble() ?? 0.0;
+            totalReviews = data['totalReviews'] ?? 0;
+            shopPhotos = List<String>.from(data['shopPhotos'] ?? []);
+            isLoading = false;
+          });
+        }
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('barber_profile', doc.data().toString());
+      } else {
+        debugPrint("DEBUG PROFILE: Document does not exist!");
+        if (mounted) setState(() => isLoading = false);
+      }
+    } catch (e) {
+      debugPrint("DEBUG PROFILE: Error loading profile: $e");
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -87,10 +104,9 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
 
     if (confirmed == true) {
       shopPhotos.removeAt(index);
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.barberId)
-          .update({'shopPhotos': shopPhotos});
+      await BaasClient.collection(
+        'users',
+      ).doc(widget.barberId).update({'shopPhotos': shopPhotos});
 
       setState(() {});
     }
@@ -108,25 +124,28 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
       });
 
       try {
-        final uid = FirebaseAuth.instance.currentUser!.uid;
-        final filename = '$tempId\_$uid.jpg';
+        final uid = BaasClient.instance.sdk.auth.currentUser?.id ?? 'unknown';
 
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('shop_photos')
-            .child(filename);
+        final filename = '${tempId}_$uid.jpg';
+        String newUrl;
 
-        await ref.putFile(File(image.path));
-        final newUrl = await ref.getDownloadURL();
+        // Custom BaaS Storage
+        debugPrint("DEBUG: Uploading to Custom BaaS Storage...");
+        final ref = BaasClient.instance.sdk.storage.ref(
+          'shop_photos/$filename',
+        );
+        final bytes = await image.readAsBytes();
+        final storedFile = await ref.putBytes(bytes, contentType: 'image/jpeg');
+        newUrl = storedFile.downloadUrl;
+        debugPrint("DEBUG: Upload Success. URL: $newUrl");
 
         // Replace shimmer placeholder with real image
         final index = shopPhotos.indexWhere((e) => e == 'shimmer_$tempId');
         if (index != -1) shopPhotos[index] = newUrl;
 
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.barberId)
-            .update({'shopPhotos': shopPhotos});
+        await BaasClient.collection(
+          'users',
+        ).doc(widget.barberId).update({'shopPhotos': shopPhotos});
 
         setState(() {});
       } catch (e) {
@@ -134,6 +153,176 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
         // remove the placeholder shimmer if failed
         shopPhotos.removeWhere((e) => e.startsWith('shimmer_'));
         setState(() {});
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+      }
+    }
+  }
+
+  void _showEditDialog() {
+    final nameController = TextEditingController(text: name);
+    final addressController = TextEditingController(text: address);
+    final pincodeController = TextEditingController(text: pincode);
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text(
+              'Edit Profile',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Name / Shop Name',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: addressController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Shop Address',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: pincodeController,
+                  style: const TextStyle(color: Colors.white),
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Pincode',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.greenAccent,
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () async {
+                  final newName = nameController.text.trim();
+                  final newAddress = addressController.text.trim();
+                  final newPincode =
+                      pincodeController.text.trim(); // Get new pincode
+
+                  if (newName.isEmpty || newAddress.isEmpty) return;
+
+                  Navigator.pop(context);
+                  setState(() => isLoading = true);
+
+                  try {
+                    await BaasClient.collection(
+                      'users',
+                    ).doc(widget.barberId).update({
+                      // Changed to update method
+                      'name': newName,
+                      'shopAddress': newAddress,
+                      'pincode': newPincode, // Added pincode to update
+                      'updatedAt': DateTime.now().toIso8601String(),
+                    });
+
+                    setState(() {
+                      name = newName;
+                      address = newAddress;
+                      pincode = newPincode; // Update local state
+                      isLoading = false;
+                    });
+                  } catch (e) {
+                    debugPrint("Error saving profile: $e");
+                    setState(() => isLoading = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to save: $e')),
+                    );
+                  }
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _logout() async {
+    final confirmed = await showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text(
+              'Logout Confirmation',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'Are you sure you want to logout from Kesh Kart?',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Logout',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      if (mounted) setState(() => isLoading = true);
+
+      try {
+        // 1. Clear Local Storage
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+
+        // 2. Sign out
+        await BaasClient.instance.sdk.auth.signOut();
+
+        // 3. Navigate to Login (Remove all history)
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const LogInScreen()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        debugPrint("Logout error: $e");
+        if (mounted) setState(() => isLoading = false);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
       }
     }
   }
@@ -267,7 +456,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
                         const SizedBox(width: 5),
                         Flexible(
                           child: Text(
-                            address ?? '',
+                            "${address ?? ''}${(pincode != null && pincode!.isNotEmpty && !(address ?? '').contains(pincode!)) ? ', $pincode' : ''}",
                             style: const TextStyle(color: Colors.white),
                           ),
                         ),
@@ -277,7 +466,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
                             size: 20,
                             color: Colors.white,
                           ),
-                          onPressed: () {},
+                          onPressed: _showEditDialog,
                         ),
                       ],
                     ),
@@ -424,15 +613,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
                     ),
                     const SizedBox(height: 10),
                     TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-
-                          slideUpRoute(
-                            GroomingMenuScreen(barberId: widget.barberId),
-                          ),
-                        );
-                      },
+                      onPressed: _logout,
                       child: const Text(
                         'Logout',
                         style: TextStyle(color: Colors.red),

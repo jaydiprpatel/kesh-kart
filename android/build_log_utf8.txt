@@ -1,0 +1,215 @@
+﻿Starting a Gradle Daemon, 3 incompatible Daemons could not be reused, use --status for details
+> Task :gradle:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle:pluginDescriptors
+> Task :gradle:processResources
+
+> Task :gradle:compileKotlin
+w: file:///C:/SDKs/flutter/packages/flutter_tools/gradle/src/main/kotlin/FlutterPlugin.kt:11:37 'ApkVariant' is deprecated. Deprecated in Java
+w: file:///C:/SDKs/flutter/packages/flutter_tools/gradle/src/main/kotlin/FlutterPlugin.kt:609:69 'ApkVariant' is deprecated. Deprecated in Java
+w: file:///C:/SDKs/flutter/packages/flutter_tools/gradle/src/main/kotlin/plugins/PluginHandler.kt:186:64 Unchecked cast: NamedDomainObjectContainer<out BuildType> to NamedDomainObjectContainer<BuildType>
+w: file:///C:/SDKs/flutter/packages/flutter_tools/gradle/src/main/kotlin/plugins/PluginHandler.kt:187:69 Unchecked cast: NamedDomainObjectContainer<out BuildType> to NamedDomainObjectContainer<BuildType>
+
+> Task :gradle:compileJava NO-SOURCE
+> Task :gradle:compileGroovy NO-SOURCE
+> Task :gradle:classes
+> Task :gradle:jar
+
+> Configure project :app
+.\gradlew.bat : 
+Warning: Flutter 
+support for your 
+project's Kotlin 
+version (2.0.0) will 
+soon be dropped. 
+Please upgrade your 
+Kotlin version to a 
+version of at least 
+2.1.0 soon.
+At line:1 char:1
++ .\gradlew.bat 
+assembleDebug > 
+build_log.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~
+    + CategoryInfo   
+           : NotSpe  
+  cified: (Warning   
+ : Flutte...ast 2    
+.1.0 soon.:Strin    
+g) [], RemoteExc    
+eption
+    + FullyQualified 
+   ErrorId : Native  
+  CommandError
+ 
+Alternatively, use 
+the flag "--android-s
+kip-build-dependency-
+validation" to 
+bypass this check.
+
+Potential fix: Your 
+project's KGP 
+version is typically 
+defined in the 
+plugins block of the 
+`settings.gradle` 
+file (D:\baas_platfor
+m\kesh_kart\android/s
+ettings.gradle), by 
+a plugin with the id 
+of org.jetbrains.kotl
+in.android. 
+If you don't see a 
+plugins block, your 
+project was likely 
+created with an 
+older template 
+version, in which 
+case it is most 
+likely defined in 
+the top-level 
+build.gradle file (D:
+\baas_platform\kesh_k
+art\android/build.gra
+dle) by the 
+ext.kotlin_version 
+property.
+
+WARNING: We recommend using a newer Android Gradle plugin to use compileSdk = 36
+
+This Android Gradle plugin (8.7.0) was tested up to compileSdk = 35.
+
+You are strongly encouraged to update your project to use a newer
+Android Gradle plugin that has been tested with compileSdk = 36.
+
+If you are already using the latest version of the Android Gradle plugin,
+you may need to wait until a newer version with support for compileSdk = 36 is available.
+
+For more information refer to the compatibility table:
+https://d.android.com/r/tools/api-level-support
+
+To suppress this warning, add/update
+    android.suppressUnsupportedCompileSdk=36
+to this project's gradle.properties.
+
+> Task :app:DebugMinSdkCheck
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:compileFlutterBuildDebug UP-TO-DATE
+> Task :app:packJniLibsflutterBuildDebug UP-TO-DATE
+> Task :cloud_firestore:preBuild UP-TO-DATE
+> Task :cloud_firestore:preDebugBuild UP-TO-DATE
+> Task :cloud_firestore:writeDebugAarMetadata UP-TO-DATE
+> Task :firebase_analytics:preBuild UP-TO-DATE
+> Task :firebase_analytics:preDebugBuild UP-TO-DATE
+> Task :firebase_analytics:writeDebugAarMetadata UP-TO-DATE
+> Task :firebase_auth:preBuild UP-TO-DATE
+> Task :firebase_auth:preDebugBuild UP-TO-DATE
+> Task :firebase_auth:writeDebugAarMetadata UP-TO-DATE
+> Task :firebase_core:preBuild UP-TO-DATE
+> Task :firebase_core:preDebugBuild UP-TO-DATE
+> Task :firebase_core:writeDebugAarMetadata UP-TO-DATE
+> Task :firebase_crashlytics:preBuild UP-TO-DATE
+> Task :firebase_crashlytics:preDebugBuild UP-TO-DATE
+> Task :firebase_crashlytics:writeDebugAarMetadata UP-TO-DATE
+> Task :firebase_storage:preBuild UP-TO-DATE
+> Task :firebase_storage:preDebugBuild UP-TO-DATE
+> Task :firebase_storage:writeDebugAarMetadata UP-TO-DATE
+> Task :flutter_plugin_android_lifecycle:preBuild UP-TO-DATE
+> Task :flutter_plugin_android_lifecycle:preDebugBuild UP-TO-DATE
+> Task :flutter_plugin_android_lifecycle:writeDebugAarMetadata UP-TO-DATE
+> Task :geocoding_android:preBuild UP-TO-DATE
+> Task :geocoding_android:preDebugBuild UP-TO-DATE
+> Task :geocoding_android:writeDebugAarMetadata UP-TO-DATE
+> Task :geolocator_android:preBuild UP-TO-DATE
+> Task :geolocator_android:preDebugBuild UP-TO-DATE
+> Task :geolocator_android:writeDebugAarMetadata UP-TO-DATE
+> Task :image_picker_android:preBuild UP-TO-DATE
+> Task :image_picker_android:preDebugBuild UP-TO-DATE
+> Task :image_picker_android:writeDebugAarMetadata UP-TO-DATE
+> Task :path_provider_android:preBuild UP-TO-DATE
+> Task :path_provider_android:preDebugBuild UP-TO-DATE
+> Task :path_provider_android:writeDebugAarMetadata UP-TO-DATE
+> Task :permission_handler_android:preBuild UP-TO-DATE
+> Task :permission_handler_android:preDebugBuild UP-TO-DATE
+> Task :permission_handler_android:writeDebugAarMetadata UP-TO-DATE
+> Task :shared_preferences_android:preBuild UP-TO-DATE
+> Task :shared_preferences_android:preDebugBuild UP-TO-DATE
+> Task :shared_preferences_android:writeDebugAarMetadata UP-TO-DATE
+> Task :app:cleanMergeDebugAssets UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :cloud_firestore:mergeDebugShaders UP-TO-DATE
+> Task :cloud_firestore:compileDebugShaders NO-SOURCE
+> Task :cloud_firestore:generateDebugAssets UP-TO-DATE
+> Task :cloud_firestore:packageDebugAssets UP-TO-DATE
+> Task :firebase_analytics:mergeDebugShaders UP-TO-DATE
+> Task :app:checkDebugAarMetadata FAILED
+> Task :firebase_analytics:compileDebugShaders NO-SOURCE
+> Task :firebase_analytics:generateDebugAssets UP-TO-DATE
+> Task :firebase_analytics:packageDebugAssets
+
+FAILURE: Build 
+failed with an 
+exception.
+
+* What went wrong:
+Execution failed for 
+task ':app:checkDebug
+AarMetadata'.
+> A failure occurred 
+while executing com.a
+ndroid.build.gradle.i
+nternal.tasks.CheckAa
+rMetadataWorkAction
+   > 2 issues were 
+found when checking 
+AAR metadata:
+     
+       1.  
+Dependency 'androidx.
+activity:activity-ktx
+:1.11.0' requires 
+Android Gradle 
+plugin 8.9.1 or 
+higher.
+     
+           This 
+build currently uses 
+Android Gradle 
+plugin 8.7.0.
+     
+       2.  
+Dependency 'androidx.
+activity:activity:1.1
+1.0' requires 
+Android Gradle 
+plugin 8.9.1 or 
+higher.
+     
+           This 
+build currently uses 
+Android Gradle 
+plugin 8.7.0.
+
+* Try:
+> Run with 
+--stacktrace option 
+to get the stack 
+trace.
+> Run with --info or 
+--debug option to 
+get more log output.
+> Run with --scan to 
+get full insights.
+> Get more help at ht
+tps://help.gradle.org
+.
+28 actionable tasks: 8 executed, 20 up-to-date
+
+BUILD FAILED in 44s
