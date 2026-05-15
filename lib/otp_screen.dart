@@ -1,8 +1,6 @@
 // ignore_for_file: public_member_api_docs, sort_constructors_first
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:glowy_borders/glowy_borders.dart';
@@ -13,11 +11,9 @@ import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/commons.dart';
 import 'package:kesh_kart/customer/home.dart';
+import 'package:kesh_kart/bedrock_client.dart';
 
 class OTPScreen extends StatefulWidget {
-  final bool isSignUp;
-  final String? userName;
-  final String? userId;
   final String phoneNumber;
   final String verificationId;
 
@@ -25,9 +21,6 @@ class OTPScreen extends StatefulWidget {
     super.key,
     required this.phoneNumber,
     required this.verificationId,
-    required this.isSignUp,
-    this.userName,
-    this.userId,
   });
 
   @override
@@ -41,15 +34,9 @@ class _OTPScreenState extends State<OTPScreen> {
   double _iconOpacity = 0.0;
   double _textOpacity = 0.0;
 
-  bool _showPasswordLogin = false;
-  String password = '';
-  bool _obscurePassword = true;
-
   @override
   void initState() {
     super.initState();
-
-    debugPrint("🚨 IS SIGN UP RECEIVED: ${widget.isSignUp}");
 
     Future.delayed(const Duration(milliseconds: 200), () {
       setState(() => _iconOpacity = 1.0);
@@ -113,7 +100,7 @@ class _OTPScreenState extends State<OTPScreen> {
                 opacity: _textOpacity,
                 duration: const Duration(milliseconds: 600),
                 child: Text(
-                  'Enter the ${_showPasswordLogin ? "password" : "OTP"} sent to\n+91 ${widget.phoneNumber}',
+                  'Enter the OTP sent to\n${widget.phoneNumber}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontFamily: 'Poppins',
@@ -123,23 +110,9 @@ class _OTPScreenState extends State<OTPScreen> {
                 ),
               ),
               const SizedBox(height: 30),
-              _showPasswordLogin ? buildPasswordLoginUI() : buildOtpLoginUI(),
+              buildOtpLoginUI(),
 
               const SizedBox(height: 10),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _showPasswordLogin = !_showPasswordLogin;
-                  });
-                },
-                child: Text(
-                  _showPasswordLogin ? 'Login with OTP' : 'Login with Password',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
               const SizedBox(height: 15),
               Center(
                 child: AnimatedGradientBorder(
@@ -164,91 +137,119 @@ class _OTPScreenState extends State<OTPScreen> {
                       }
 
                       try {
-                        PhoneAuthCredential credential =
-                            PhoneAuthProvider.credential(
-                              verificationId: widget.verificationId,
-                              smsCode: otpCode,
-                            );
-
-                        await FirebaseAuth.instance.signInWithCredential(
-                          credential,
+                        final bedrockResponse = await BedrockClient().verifyOtp(
+                          widget.phoneNumber,
+                          otpCode,
                         );
+                        if (bedrockResponse == null) {
+                          throw Exception("OTP verification failed");
+                        }
 
-                        final user = FirebaseAuth.instance.currentUser;
-                        final uid = user?.uid;
-                        final phone = '+91${widget.phoneNumber}';
+                        final bool isNewUser =
+                            bedrockResponse['is_new_user'] ?? false;
+                        final String bedrockUserId =
+                            bedrockResponse['user_id'] ?? '';
 
-                        if (widget.isSignUp) {
+                        if (isNewUser) {
                           // 🔹 New user → Go to role selection & registration
                           Navigator.pushReplacement(
                             context,
                             slideUpRoute(
                               Choose(
                                 phoneNumber: widget.phoneNumber,
-                                userId: uid ?? '',
+                                userId: bedrockUserId,
                               ),
                             ),
                           );
                         } else {
-                          // 🔹 Existing user → Fetch details and route to home
-                          final docSnapshot =
-                              await FirebaseFirestore.instance
-                                  .collection('users')
-                                  .where('phone', isEqualTo: phone)
-                                  .limit(1)
-                                  .get();
+                          // 🔹 Existing user → Fetch details from Bedrock and route to home
+                          final users = await BedrockClient().queryCollection(
+                            'users',
+                            params: {'uid': bedrockUserId},
+                          );
 
-                          if (docSnapshot.docs.isNotEmpty) {
-                            final userData = docSnapshot.docs.first.data();
+                          if (users.isNotEmpty) {
+                            final userDataWrapper = users.first;
+                            final userData = userDataWrapper['data'] ?? {};
                             final userType = userData['userType'] ?? '';
                             final profileCompleted =
                                 userData['profileCompleted'] == true;
 
                             if (!profileCompleted) {
-                              // Doc exists but incomplete (fail-safe)
                               Navigator.pushReplacement(
                                 context,
                                 slideUpRoute(
                                   Choose(
                                     phoneNumber: widget.phoneNumber,
-                                    userId: uid ?? '',
+                                    userId: bedrockUserId,
                                   ),
                                 ),
                               );
-                            } else if (userType == 'barber') {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.setString('userId', uid ?? '');
-                              await prefs.setString('role', userType);
-                              await prefs.setBool('isLoggedIn', true);
-
-                              Navigator.pushReplacement(
-                                context,
-                                slideUpRoute(const BarberHome()),
-                              );
-                            } else if (userType == 'customer') {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.setString('userId', uid ?? '');
-                              await prefs.setString('role', userType);
-                              await prefs.setBool('isLoggedIn', true);
-
-                              Navigator.pushReplacement(
-                                context,
-                                slideUpRoute(const CustomerHome()),
-                              );
                             } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("Invalid user type."),
-                                ),
+                              final prefs =
+                                  await SharedPreferences.getInstance();
+                              await prefs.setString('userId', bedrockUserId);
+                              await prefs.setString('role', userType);
+                              await prefs.setBool('isLoggedIn', true);
+
+                              // Save full profile to SharedPreferences for offline/quick access
+                              await prefs.setString(
+                                'barberName',
+                                userData['name'] ?? '',
                               );
+                              await prefs.setString(
+                                'phone',
+                                userData['phone'] ?? '',
+                              );
+                              await prefs.setString(
+                                'email',
+                                userData['email'] ?? '',
+                              );
+                              await prefs.setString(
+                                'shopName',
+                                userData['shopName'] ?? '',
+                              );
+
+                              if (userData['location'] != null) {
+                                await prefs.setDouble(
+                                  'lat',
+                                  userData['location']['lat'] ?? 0.0,
+                                );
+                                await prefs.setDouble(
+                                  'lng',
+                                  userData['location']['lng'] ?? 0.0,
+                                );
+                              }
+
+                              await prefs.setBool(
+                                'isActive',
+                                userData['isActive'] ?? false,
+                              );
+                              await prefs.setStringList(
+                                'shopPhotos',
+                                List<String>.from(userData['shopPhotos'] ?? []),
+                              );
+
+                              if (userType == 'barber') {
+                                Navigator.pushReplacement(
+                                  context,
+                                  slideUpRoute(const BarberHome()),
+                                );
+                              } else if (userType == 'customer') {
+                                Navigator.pushReplacement(
+                                  context,
+                                  slideUpRoute(const CustomerHome()),
+                                );
+                              }
                             }
                           } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  "User not found. Please sign up.",
+                            // Handshake succeeded but no profile found (should not happen if is_new_user was false)
+                            Navigator.pushReplacement(
+                              context,
+                              slideUpRoute(
+                                Choose(
+                                  phoneNumber: widget.phoneNumber,
+                                  userId: bedrockUserId,
                                 ),
                               ),
                             );
@@ -327,35 +328,6 @@ class _OTPScreenState extends State<OTPScreen> {
               ),
             ),
       ],
-    );
-  }
-
-  Widget buildPasswordLoginUI() {
-    return TextField(
-      onChanged: (value) => password = value,
-      obscureText: _obscurePassword,
-      style: const TextStyle(color: Colors.white),
-      decoration: InputDecoration(
-        filled: true,
-        fillColor: Colors.white10,
-        hintText: 'Enter Password',
-        hintStyle: const TextStyle(color: Colors.white38),
-        suffixIcon: IconButton(
-          icon: Icon(
-            _obscurePassword ? Icons.visibility_off : Icons.visibility,
-            color: Colors.white54,
-          ),
-          onPressed: () {
-            setState(() {
-              _obscurePassword = !_obscurePassword;
-            });
-          },
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
-        ),
-      ),
     );
   }
 }

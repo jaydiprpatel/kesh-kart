@@ -1,11 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:glowy_borders/glowy_borders.dart';
+import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/otp_screen.dart';
 import 'package:kesh_kart/commons.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 
 class LogInScreen extends StatefulWidget {
@@ -26,6 +24,7 @@ class _LogInScreenState extends State<LogInScreen> {
   void initState() {
     super.initState();
     Future.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
       setState(() {
         _taglineOpacity = 1.0;
       });
@@ -160,21 +159,36 @@ class _LogInScreenState extends State<LogInScreen> {
                           ? null
                           : () async {
                             final phone = phoneNumberController.text.trim();
-                            final cleanedPhone = phone.replaceAll(
+                            String cleanedPhone = phone.replaceAll(
                               RegExp(r'[^0-9]'),
                               '',
                             );
-                            final formattedPhone = '+91$cleanedPhone';
 
-                            if (phone.isEmpty || phone.length < 10) {
+                            // Strip accidental leading zero ONLY if user typed 11 digits (e.g. 0XXXXXXXXXX)
+                            if (cleanedPhone.length == 11 &&
+                                cleanedPhone.startsWith('0')) {
+                              cleanedPhone = cleanedPhone.substring(1);
+                            }
+
+                            // Ensure we have exactly 10 digits for the actual number (India standard)
+                            if (cleanedPhone.length < 10) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
-                                    "Please enter a valid phone number",
+                                    "Please enter a valid 10-digit number",
                                   ),
                                 ),
                               );
                               return;
+                            }
+
+                            // Ensure E.164 format with +91
+                            String formattedPhone;
+                            if (cleanedPhone.startsWith('91') &&
+                                cleanedPhone.length > 10) {
+                              formattedPhone = '+$cleanedPhone';
+                            } else {
+                              formattedPhone = '+91$cleanedPhone';
                             }
 
                             setState(() {
@@ -183,117 +197,34 @@ class _LogInScreenState extends State<LogInScreen> {
                             });
 
                             try {
-                              // 🔍 Check if user exists in Firestore
-                              final snapshot =
-                                  await FirebaseFirestore.instance
-                                      .collection('users')
-                                      .where('phone', isEqualTo: formattedPhone)
-                                      .limit(1)
-                                      .get();
+                              final otpResponse = await BedrockClient()
+                                  .requestOtp(formattedPhone);
+                              if (!mounted) return;
 
-                              final isSignUp = snapshot.docs.isEmpty;
-                              final userId =
-                                  isSignUp ? null : snapshot.docs.first.id;
-                              final userName =
-                                  isSignUp
-                                      ? ''
-                                      : snapshot.docs.first.data()['name'] ??
-                                          '';
+                              setState(() {
+                                currentProgress = 0.0;
+                                isLoading = false;
+                              });
 
-                              debugPrint(
-                                "📱 Firestore check → isSignUp: $isSignUp",
-                              );
-
-                              if (!isSignUp) {
-                                final data = snapshot.docs.first.data();
-
-                                final prefs =
-                                    await SharedPreferences.getInstance();
-
-                                await prefs.setString(
-                                  'userId',
-                                  snapshot.docs.first.id,
+                              if (otpResponse == null ||
+                                  otpResponse['success'] != true) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      "Unable to send OTP. Please try again.",
+                                    ),
+                                  ),
                                 );
-                                await prefs.setString(
-                                  'barberName',
-                                  data['name'] ?? '',
-                                );
-                                await prefs.setString(
-                                  'phone',
-                                  data['phone'] ?? '',
-                                );
-                                await prefs.setString(
-                                  'email',
-                                  data['email'] ?? '',
-                                );
-                                await prefs.setString(
-                                  'shopName',
-                                  data['shopName'] ?? '',
-                                );
-                                await prefs.setStringList(
-                                  'shopPhotos',
-                                  List<String>.from(data['shopPhotos'] ?? []),
-                                );
-                                await prefs.setDouble(
-                                  'lat',
-                                  data['location']['lat'],
-                                );
-                                await prefs.setDouble(
-                                  'lng',
-                                  data['location']['lng'],
-                                );
-                                await prefs.setBool(
-                                  'isActive',
-                                  data['isActive'] ?? false,
-                                );
-                                await prefs.setString(
-                                  'userType',
-                                  data['userType'] ?? 'barber',
-                                );
-                                await prefs.setBool('isLoggedIn', true);
+                                return;
                               }
 
-                              await FirebaseAuth.instance.verifyPhoneNumber(
-                                phoneNumber: formattedPhone,
-                                timeout: const Duration(seconds: 60),
-                                verificationCompleted:
-                                    (PhoneAuthCredential credential) {},
-                                verificationFailed: (FirebaseAuthException e) {
-                                  setState(() {
-                                    currentProgress = 0.0;
-                                    isLoading = false;
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        "Verification failed: ${e.message}",
-                                      ),
-                                    ),
-                                  );
-                                },
-                                codeSent: (
-                                  String verificationId,
-                                  int? resendToken,
-                                ) {
-                                  setState(() {
-                                    currentProgress = 0.0;
-                                    isLoading = false;
-                                  });
-
-                                  Navigator.of(context).push(
-                                    slideUpRoute(
-                                      OTPScreen(
-                                        phoneNumber: phone,
-                                        isSignUp: isSignUp,
-                                        userName: userName,
-                                        userId: userId,
-                                        verificationId: verificationId,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                codeAutoRetrievalTimeout:
-                                    (String verificationId) {},
+                              Navigator.of(context).push(
+                                slideUpRoute(
+                                  OTPScreen(
+                                    phoneNumber: formattedPhone,
+                                    verificationId: 'BEDROCK_OTP',
+                                  ),
+                                ),
                               );
                             } catch (e) {
                               setState(() {
