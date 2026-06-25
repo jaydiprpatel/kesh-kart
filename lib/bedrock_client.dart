@@ -6,60 +6,31 @@ import 'package:flutter/foundation.dart';
 
 class BedrockClient {
   static const String baseUrl = 'https://api.keshkart.com';
-  static const String projectKey = 'pk_dev_fbdd6a8f0dc9489c';
+  static const String projectId = '1832d133-a293-44d1-ab05-4b843c84d0f3';
+  static const String projectKey = 'pk_prod_keshkart_android';
   static const Duration requestTimeout = Duration(seconds: 20);
 
   static final BedrockClient _instance = BedrockClient._internal();
   factory BedrockClient() => _instance;
   BedrockClient._internal();
 
-  /// Exchanges a Firebase ID token for a Bedrock JWT session.
-  Future<Map<String, dynamic>?> firebaseLogin(
-    String idToken, {
-    String deviceId = 'unknown',
-  }) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/v1/auth/firebase-login/'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'id_token': idToken,
-          'project_key': projectKey,
-          'device_id': deviceId,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final accessToken = data['access_token'];
-        final userId = data['user_id'];
-
-        if (accessToken != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('bedrock_token', accessToken.toString());
-          if (userId != null) {
-            await prefs.setString('bedrock_user_id', userId.toString());
-          }
-          return data;
-        }
-      } else {
-        debugPrint(
-          'Bedrock Login Failed: ${response.statusCode} - ${response.body}',
-        );
-      }
-    } catch (e) {
-      debugPrint('Bedrock Login Error: $e');
-    }
-    return null;
-  }
-
   Future<Map<String, dynamic>?> requestOtp(String phone) async {
-    final response = await _publicRequest(
+    final uri = Uri.parse('$baseUrl/api/v1/auth/otp/request/');
+    final response = await _sendWithRetry(
       'POST',
-      'auth/otp/request',
+      uri,
+      headers: {'Content-Type': 'application/json'},
       body: {'project_key': projectKey, 'phone': phone},
     );
-    return response is Map<String, dynamic> ? response : null;
+    final data = jsonDecode(response.body);
+    if (data is Map<String, dynamic>) {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        data['success'] = false;
+        data['status_code'] = response.statusCode;
+      }
+      return data;
+    }
+    return null;
   }
 
   Future<Map<String, dynamic>?> verifyOtp(String phone, String otp) async {
@@ -122,7 +93,7 @@ class BedrockClient {
           'documents/$documentId',
           body: {
             'collection': collection,
-            'project_id': projectKey,
+            'project_id': projectId,
             'patch': data,
           },
         )
@@ -144,7 +115,7 @@ class BedrockClient {
       'query',
       body: {
         'collection': collection,
-        'project_id': projectKey,
+        'project_id': projectId,
         'filters': filters,
         'limit': 100,
       },
@@ -171,8 +142,19 @@ class BedrockClient {
     String path, {
     String contentType = 'image/jpeg',
   }) async {
+    return _uploadFileWithAuth(file, path, contentType: contentType);
+  }
+
+  Future<String?> _uploadFileWithAuth(
+    File file,
+    String path, {
+    required String contentType,
+    bool retried = false,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('bedrock_token');
+    final fileExists = await file.exists();
+    final fileSize = fileExists ? await file.length() : -1;
 
     if (token == null) {
       debugPrint('Bedrock Upload Error: No access token found.');
@@ -180,6 +162,10 @@ class BedrockClient {
     }
 
     try {
+      debugPrint(
+        '[KeshKartUpload] start path=$path contentType=$contentType '
+        'file=${file.path} exists=$fileExists bytes=$fileSize',
+      );
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$baseUrl/api/v1/keshkart/upload/'),
@@ -196,10 +182,38 @@ class BedrockClient {
 
       final streamed = await request.send();
       final response = await http.Response.fromStream(streamed);
+      debugPrint(
+        '[KeshKartUpload] response status=${response.statusCode} body=${response.body}',
+      );
+
+      if (response.statusCode == 401 && !retried) {
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          return _uploadFileWithAuth(
+            file,
+            path,
+            contentType: contentType,
+            retried: true,
+          );
+        }
+      }
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = jsonDecode(response.body);
-        return data['download_url'] as String?;
+        final downloadUrl = data['download_url'] as String?;
+        if (downloadUrl == null || downloadUrl.isEmpty) {
+          debugPrint('Bedrock Upload Failed: response missing download_url');
+          return null;
+        }
+        final isReadable = await _verifyDownloadUrl(downloadUrl);
+        if (!isReadable) {
+          debugPrint('Bedrock Upload Failed: uploaded file is not readable.');
+          return null;
+        }
+        debugPrint(
+          '[KeshKartUpload] success path=$path url=${_safeLogUrl(downloadUrl)}',
+        );
+        return downloadUrl;
       }
 
       debugPrint(
@@ -212,10 +226,116 @@ class BedrockClient {
     return null;
   }
 
+  Future<bool> _verifyDownloadUrl(String downloadUrl) async {
+    try {
+      final response = await http
+          .get(Uri.parse(downloadUrl))
+          .timeout(requestTimeout);
+      debugPrint(
+        '[KeshKartUpload] verify status=${response.statusCode} '
+        'url=${_safeLogUrl(downloadUrl)} bytes=${response.bodyBytes.length}',
+      );
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return true;
+      }
+      debugPrint(
+        'Bedrock Upload Verify Failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      debugPrint('Bedrock Upload Verify Error: $e');
+    }
+    return false;
+  }
+
+  Future<String?> getDownloadUrl(String pathOrUrl) async {
+    return _getDownloadUrlWithAuth(pathOrUrl);
+  }
+
+  Future<String?> _getDownloadUrlWithAuth(
+    String pathOrUrl, {
+    bool retried = false,
+  }) async {
+    final storagePath = _storagePathFromUrl(pathOrUrl);
+    if (storagePath == null || storagePath.isEmpty) return null;
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('bedrock_token');
+
+    if (token == null) {
+      debugPrint('Bedrock Download URL Error: No access token found.');
+      return null;
+    }
+
+    final uri = Uri.parse(
+      '$baseUrl/api/v1/storage/download-url/',
+    ).replace(queryParameters: {'project_id': projectId, 'path': storagePath});
+
+    try {
+      final response = await http
+          .get(
+            uri,
+            headers: {
+              'Authorization': 'Bearer $token',
+              'X-Project-Key': projectKey,
+            },
+          )
+          .timeout(requestTimeout);
+
+      if (response.statusCode == 401 && !retried) {
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          return _getDownloadUrlWithAuth(pathOrUrl, retried: true);
+        }
+      }
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(response.body);
+        return data['download_url'] as String?;
+      }
+
+      debugPrint(
+        'Bedrock Download URL Failed: ${response.statusCode} - ${response.body}',
+      );
+    } catch (e) {
+      debugPrint('Bedrock Download URL Error: $e');
+    }
+
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> getShopVerification() async {
+    return await _authenticatedRequest('GET', 'keshkart/shop-verification')
+        as Map<String, dynamic>?;
+  }
+
+  Future<Map<String, dynamic>?> submitShopVerification({
+    required String photoUrl,
+    required String photoPath,
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+  }) async {
+    return await _authenticatedRequest(
+          'POST',
+          'keshkart/shop-verification',
+          body: {
+            'project_key': projectKey,
+            'photo_url': photoUrl,
+            'photo_path': photoPath,
+            'lat': latitude,
+            'lng': longitude,
+            'accuracy_meters': accuracyMeters,
+            'captured_at': DateTime.now().toIso8601String(),
+          },
+        )
+        as Map<String, dynamic>?;
+  }
+
   Future<dynamic> _authenticatedRequest(
     String method,
     String path, {
     Map<String, dynamic>? body,
+    bool retried = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('bedrock_token');
@@ -246,6 +366,11 @@ class BedrockClient {
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return jsonDecode(response.body);
+      } else if (response.statusCode == 401 && !retried) {
+        final refreshed = await _refreshAccessToken();
+        if (refreshed) {
+          return _authenticatedRequest(method, path, body: body, retried: true);
+        }
       } else {
         debugPrint(
           'Bedrock Request Failed ($method $path): ${response.statusCode} - ${response.body}',
@@ -255,6 +380,46 @@ class BedrockClient {
     } catch (e) {
       debugPrint('Bedrock Request Error ($method $path): $e');
       return null;
+    }
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final refreshToken = prefs.getString('bedrock_refresh_token');
+    if (refreshToken == null || refreshToken.isEmpty) {
+      debugPrint('Bedrock Token Refresh: no refresh token available.');
+      return false;
+    }
+
+    try {
+      final response = await _sendWithRetry(
+        'POST',
+        Uri.parse('$baseUrl/api/v1/auth/refresh/'),
+        headers: {'Content-Type': 'application/json'},
+        body: {'refresh_token': refreshToken},
+      );
+      debugPrint('Bedrock Token Refresh: status=${response.statusCode}');
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('Bedrock Token Refresh Failed: ${response.body}');
+        return false;
+      }
+
+      final data = jsonDecode(response.body);
+      final accessToken = data['access_token'];
+      final newRefreshToken = data['refresh_token'];
+      if (accessToken == null) return false;
+
+      await prefs.setString('bedrock_token', accessToken.toString());
+      if (newRefreshToken != null) {
+        await prefs.setString(
+          'bedrock_refresh_token',
+          newRefreshToken.toString(),
+        );
+      }
+      return true;
+    } catch (e) {
+      debugPrint('Bedrock Token Refresh Error: $e');
+      return false;
     }
   }
 
@@ -320,5 +485,34 @@ class BedrockClient {
       }
     }
     throw Exception(lastError ?? 'Request failed');
+  }
+
+  String? _storagePathFromUrl(String pathOrUrl) {
+    final value = pathOrUrl.trim();
+    if (value.isEmpty || value.startsWith('shimmer_')) return null;
+    final uri = Uri.tryParse(value);
+    if (uri == null || !uri.hasScheme) return value;
+
+    final segments = uri.pathSegments;
+    final bucketIndex = segments.indexOf('bucket');
+    if (bucketIndex == -1 || segments.length <= bucketIndex + 2) {
+      return null;
+    }
+
+    return segments.skip(bucketIndex + 2).join('/');
+  }
+
+  String _safeLogUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    final expires = uri.queryParameters['expires'];
+    final signature = uri.queryParameters['signature'];
+    final safeQuery = <String, String>{};
+    if (expires != null) safeQuery['expires'] = expires;
+    if (signature != null) {
+      safeQuery['signature'] =
+          signature.length <= 8 ? signature : '${signature.substring(0, 8)}...';
+    }
+    return uri.replace(queryParameters: safeQuery).toString();
   }
 }

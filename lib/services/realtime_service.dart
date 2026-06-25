@@ -27,9 +27,20 @@ class KeshKartRealtimeService {
     final token = prefs.getString('bedrock_token');
     final uri = _buildRealtimeUri(token: token, batching: batching);
 
-    _channel = WebSocketChannel.connect(uri);
+    final channel = WebSocketChannel.connect(uri);
+    try {
+      await channel.ready.timeout(const Duration(seconds: 10));
+    } catch (error) {
+      await channel.sink.close();
+      _events.add({'type': 'socket_error', 'error': error.toString()});
+      _channel = null;
+      _scheduleReconnect();
+      return;
+    }
+
+    _channel = channel;
     _reconnectAttempts = 0;
-    _subscription = _channel!.stream.listen(
+    _subscription = channel.stream.listen(
       _handleMessage,
       onError: (error) {
         _events.add({'type': 'socket_error', 'error': error.toString()});
@@ -103,9 +114,8 @@ class KeshKartRealtimeService {
   Uri _buildRealtimeUri({String? token, required bool batching}) {
     final base = Uri.parse(BedrockClient.baseUrl);
     final scheme = base.scheme == 'https' ? 'wss' : 'ws';
-    return base.replace(
-      scheme: scheme,
-      path: '/ws/v1/realtime/',
+    final authority = base.hasPort ? '${base.host}:${base.port}' : base.host;
+    return Uri.parse('$scheme://$authority/ws/v1/realtime/').replace(
       queryParameters: {
         'project': BedrockClient.projectKey,
         'batch': batching ? '1' : '0',

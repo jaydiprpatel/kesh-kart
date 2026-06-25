@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:kesh_kart/bedrock_client.dart';
 
 class GroomingMenuScreen extends StatefulWidget {
   final String barberId;
@@ -29,27 +29,30 @@ class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
   }
 
   Future<void> _loadServices() async {
-    final doc =
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.barberId)
-            .get();
-    if (doc.exists && doc.data()!.containsKey('services')) {
-      final data = List<Map<String, dynamic>>.from(doc['services']);
-      setState(() {
-        services = data;
-        isLoading = false;
-      });
+    final doc = await BedrockClient().getDocument('users', widget.barberId);
+    
+    if (doc != null) {
+      final data = doc['data'] ?? {};
+      if (data.containsKey('services')) {
+        final serviceList = List<Map<String, dynamic>>.from(data['services']);
+        setState(() {
+          services = serviceList;
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
     } else {
       setState(() => isLoading = false);
     }
   }
 
   Future<void> _saveServices() async {
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.barberId)
-        .update({'services': services});
+    await BedrockClient().updateDocument(
+      'users', 
+      widget.barberId, 
+      {'services': services}
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Grooming menu updated successfully')),
     );
@@ -209,10 +212,11 @@ class _GroomingMenuScreenState extends State<GroomingMenuScreen> {
                               }
                             });
 
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(widget.barberId)
-                                .update({'services': services});
+                            await BedrockClient().updateDocument(
+                              'users', 
+                              widget.barberId, 
+                              {'services': services}
+                            );
 
                             Navigator.pop(context);
                           },

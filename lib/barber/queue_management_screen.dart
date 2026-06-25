@@ -7,8 +7,7 @@ import '../services/realtime_service.dart';
 class QueueManagementScreen extends StatefulWidget {
   final String shopId;
 
-  const QueueManagementScreen({Key? key, required this.shopId})
-    : super(key: key);
+  const QueueManagementScreen({super.key, required this.shopId});
 
   @override
   State<QueueManagementScreen> createState() => _QueueManagementScreenState();
@@ -270,8 +269,9 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
 
   Future<void> _updateAppointmentStatus(
     String appointmentId,
-    String newStatus,
-  ) async {
+    String newStatus, {
+    Map<String, dynamic> extraData = const {},
+  }) async {
     if (_pendingStatusUpdates.contains(appointmentId)) return;
     setState(() {
       _pendingStatusUpdates.add(appointmentId);
@@ -283,6 +283,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     Map<String, dynamic> updateData = {
       'status': newStatus,
       'priority': newPriority,
+      ...extraData,
     };
 
     if (newStatus == 'arrived') updateData['arrivedAt'] = now;
@@ -308,6 +309,113 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
         });
       }
     }
+  }
+
+  Future<void> _cancelAppointment(String appointmentId) async {
+    final reason = await _askReason(
+      title: 'Cancel booking',
+      label: 'Reason for customer',
+      fallback: 'Barber is unavailable for this appointment.',
+    );
+    if (reason == null) return;
+    await _updateAppointmentStatus(
+      appointmentId,
+      'cancelled_by_barber',
+      extraData: {
+        'cancelledBy': 'barber',
+        'cancelReason': reason,
+        'cancelledAt': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  Future<void> _rescheduleAppointment(
+    String appointmentId,
+    Map<String, dynamic> data,
+  ) async {
+    final current = _millisFromValue(data['slotStart']);
+    final initial =
+        current > 0
+            ? DateTime.fromMillisecondsSinceEpoch(current)
+            : DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(DateTime.now()) ? DateTime.now() : initial,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+
+    final reason = await _askReason(
+      title: 'Reschedule booking',
+      label: 'Reason for customer',
+      fallback: 'Barber requested a different slot.',
+    );
+    if (reason == null) return;
+
+    final start = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    final end = start.add(const Duration(minutes: 30));
+    await _updateAppointmentStatus(
+      appointmentId,
+      'booked',
+      extraData: {
+        'slotStart': start.millisecondsSinceEpoch,
+        'slotEnd': end.millisecondsSinceEpoch,
+        'rescheduledBy': 'barber',
+        'rescheduleReason': reason,
+        'rescheduledAt': DateTime.now().toIso8601String(),
+      },
+    );
+  }
+
+  Future<String?> _askReason({
+    required String title,
+    required String label,
+    required String fallback,
+  }) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: controller,
+            minLines: 2,
+            maxLines: 4,
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(labelText: label),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final text = controller.text.trim();
+                Navigator.pop(context, text.isEmpty ? fallback : text);
+              },
+              child: const Text('Send'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result;
   }
 
   @override
@@ -542,12 +650,14 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
               horizontal: 16.0,
               vertical: 8.0,
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children:
                   isPending
                       ? const [CircularProgressIndicator()]
-                      : _buildActionButtons(appointmentId, status),
+                      : _buildActionButtons(appointmentId, status, data),
             ),
           ),
         ],
@@ -555,9 +665,18 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     );
   }
 
-  List<Widget> _buildActionButtons(String id, String status) {
+  List<Widget> _buildActionButtons(
+    String id,
+    String status,
+    Map<String, dynamic> data,
+  ) {
     if (status == 'booked') {
       return [
+        OutlinedButton.icon(
+          onPressed: () => _rescheduleAppointment(id, data),
+          icon: const Icon(Icons.event_repeat),
+          label: const Text('Reschedule'),
+        ),
         ElevatedButton.icon(
           onPressed: () => _updateAppointmentStatus(id, 'arrived'),
           icon: const Icon(Icons.check),
@@ -571,6 +690,12 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           onPressed: () => _updateAppointmentStatus(id, 'no_show'),
           icon: const Icon(Icons.person_off),
           label: const Text('No Show'),
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+        ),
+        TextButton.icon(
+          onPressed: () => _cancelAppointment(id),
+          icon: const Icon(Icons.cancel_outlined),
+          label: const Text('Cancel'),
           style: TextButton.styleFrom(foregroundColor: Colors.red),
         ),
       ];

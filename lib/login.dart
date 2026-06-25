@@ -50,9 +50,20 @@ class _LogInScreenState extends State<LogInScreen> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Center(child: loginBlock()),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
+              ),
+              child: IntrinsicHeight(
+                child: Center(child: loginBlock()),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -66,7 +77,7 @@ class _LogInScreenState extends State<LogInScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const SizedBox(height: 50),
+            const Spacer(flex: 2),
             Image.asset('assets/images/image1.png', height: 250),
 
             const SizedBox(height: 10),
@@ -88,6 +99,8 @@ class _LogInScreenState extends State<LogInScreen> {
                 ),
               ),
             ),
+
+            const Spacer(flex: 3),
 
             // Username Input
             isLoading
@@ -136,8 +149,7 @@ class _LogInScreenState extends State<LogInScreen> {
                   ),
                 ),
 
-            const SizedBox(height: 15),
-            const SizedBox(height: 20),
+            const SizedBox(height: 35),
 
             // Login Button
             Center(
@@ -209,9 +221,10 @@ class _LogInScreenState extends State<LogInScreen> {
                               if (otpResponse == null ||
                                   otpResponse['success'] != true) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
+                                  SnackBar(
                                     content: Text(
-                                      "Unable to send OTP. Please try again.",
+                                      otpResponse?['error']?.toString() ??
+                                          "Unable to send OTP. Please try again.",
                                     ),
                                   ),
                                 );
@@ -223,6 +236,13 @@ class _LogInScreenState extends State<LogInScreen> {
                                   OTPScreen(
                                     phoneNumber: formattedPhone,
                                     verificationId: 'BEDROCK_OTP',
+                                    initialRemainingRequests:
+                                        otpResponse['remaining_requests']
+                                            as int?,
+                                    resendCooldownSeconds:
+                                        otpResponse['cooldown_seconds'] as int?,
+                                    maxOtpRequests:
+                                        otpResponse['max_requests'] as int?,
                                   ),
                                 ),
                               );
@@ -257,7 +277,7 @@ class _LogInScreenState extends State<LogInScreen> {
               ),
             ),
 
-            const SizedBox(height: 15),
+            const Spacer(flex: 1),
           ],
         ),
       ),

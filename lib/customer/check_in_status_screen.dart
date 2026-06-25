@@ -356,14 +356,18 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Text('Live Queue Status'),
+        backgroundColor: const Color(0xFFF8F9FA),
+        foregroundColor: const Color(0xFF091426),
+        elevation: 0,
+        title: const Text('Live Queue Status', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Icon(
               _isRealtimeConnected ? Icons.cloud_done : Icons.cloud_off,
-              color: _isRealtimeConnected ? Colors.green : Colors.orange,
+              color: _isRealtimeConnected ? const Color(0xFF00D084) : Colors.orange,
             ),
           ),
         ],
@@ -374,9 +378,9 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
                 ? const Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(),
+                    CircularProgressIndicator(color: Color(0xFF091426)),
                     SizedBox(height: 20),
-                    Text('Processing check-in...'),
+                    Text('Processing check-in...', style: TextStyle(color: Color(0xFF091426))),
                   ],
                 )
                 : _isSuccess
@@ -388,7 +392,7 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
 
   Widget _buildLiveQueueView() {
     if (_isQueueLoading) {
-      return const CircularProgressIndicator();
+      return const CircularProgressIndicator(color: Color(0xFF091426));
     }
 
     final sortedDocs = List<Map<String, dynamic>>.from(_queueDocs)..sort((
@@ -424,7 +428,7 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
     }
 
     if (myIndex == -1) {
-      return const Center(child: Text('You are not in the queue.'));
+      return const Center(child: Text('You are not in the queue.', style: TextStyle(color: Color(0xFF091426))));
     }
 
     final myPosition = myIndex + 1;
@@ -435,25 +439,25 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.check_circle, color: Colors.green, size: 80),
+          const Icon(Icons.check_circle, color: Color(0xFF00D084), size: 80),
           const SizedBox(height: 20),
           const Text(
             "You're in the Queue!",
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF091426)),
           ),
           const SizedBox(height: 40),
 
           Card(
             elevation: 8,
-            shadowColor: Colors.blue.withOpacity(0.3),
+            shadowColor: Colors.black.withOpacity(0.05),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(24),
             ),
             child: Container(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: [Colors.blue.shade900, Colors.blue.shade700],
+                borderRadius: BorderRadius.circular(24),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF091426), Color(0xFF152238)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -552,7 +556,15 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
           const SizedBox(height: 40),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Back to Home'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF091426),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              minimumSize: const Size.fromHeight(50),
+            ),
+            child: const Text('Back to Home', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -569,18 +581,26 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
           const SizedBox(height: 20),
           const Text(
             'Check-in Failed',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF091426)),
           ),
           const SizedBox(height: 20),
           Text(
             _errorMessage,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 16),
+            style: const TextStyle(fontSize: 16, color: Color(0xFF45474C)),
           ),
           const SizedBox(height: 40),
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Go Back'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF091426),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              minimumSize: const Size.fromHeight(50),
+            ),
+            child: const Text('Go Back', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

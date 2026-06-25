@@ -3,54 +3,82 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:glowy_borders/glowy_borders.dart';
-import 'package:pin_code_fields/pin_code_fields.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:kesh_kart/barber/home.dart';
+import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/commons.dart';
 import 'package:kesh_kart/customer/home.dart';
-import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/services/notification_service.dart';
+import 'package:pin_code_fields/pin_code_fields.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sms_autofill/sms_autofill.dart';
 
 class OTPScreen extends StatefulWidget {
   final String phoneNumber;
   final String verificationId;
+  final int? initialRemainingRequests;
+  final int? resendCooldownSeconds;
+  final int? maxOtpRequests;
 
   const OTPScreen({
     super.key,
     required this.phoneNumber,
     required this.verificationId,
+    this.initialRemainingRequests,
+    this.resendCooldownSeconds,
+    this.maxOtpRequests,
   });
 
   @override
   State<OTPScreen> createState() => _OTPScreenState();
 }
 
-class _OTPScreenState extends State<OTPScreen> {
+class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
+  final TextEditingController _otpController = TextEditingController();
   String otpCode = '';
-  int _secondsRemaining = 30;
-  late final Timer _timer;
+  int _secondsRemaining = 25;
+  int _resendCooldownSeconds = 25;
+  int _remainingRequests = 2;
+  int _maxOtpRequests = 3;
+  int? _retryAfterSeconds;
+  Timer? _timer;
   double _iconOpacity = 0.0;
   double _textOpacity = 0.0;
+  double _otpShakeOffset = 0.0;
+  bool _isVerifying = false;
+  bool _hasSubmittedOtp = false;
 
   @override
   void initState() {
     super.initState();
+    _resendCooldownSeconds = widget.resendCooldownSeconds ?? 25;
+    _secondsRemaining = _resendCooldownSeconds;
+    _remainingRequests = widget.initialRemainingRequests ?? 2;
+    _maxOtpRequests = widget.maxOtpRequests ?? 3;
 
     Future.delayed(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
       setState(() => _iconOpacity = 1.0);
     });
 
     Future.delayed(const Duration(milliseconds: 600), () {
+      if (!mounted) return;
       setState(() => _textOpacity = 1.0);
     });
 
     _startResendTimer();
+    _startOtpListener();
   }
 
   void _startResendTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_secondsRemaining > 0) {
         setState(() => _secondsRemaining--);
       } else {
@@ -59,9 +87,271 @@ class _OTPScreenState extends State<OTPScreen> {
     });
   }
 
+  Future<void> _startOtpListener() async {
+    try {
+      await SmsAutoFill().listenForCode();
+    } catch (e) {
+      debugPrint('SMS autofill listener failed: $e');
+    }
+  }
+
+  @override
+  void codeUpdated() {
+    final smsCode = code;
+    if (smsCode == null || smsCode.isEmpty) return;
+
+    final digits = smsCode.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 6) return;
+
+    final normalized = digits.substring(0, 6);
+    _otpController.text = normalized;
+    _onOtpChanged(normalized);
+  }
+
+  void _onOtpChanged(String value) {
+    otpCode = value.trim();
+    if (mounted) {
+      setState(() {});
+    }
+    if (otpCode.length == 6) {
+      _verifyOtp();
+    }
+  }
+
+  Future<void> _verifyOtp({bool showLengthError = false}) async {
+    if (_isVerifying || _hasSubmittedOtp) return;
+
+    if (otpCode.length != 6) {
+      if (showLengthError && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a valid 6-digit OTP')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isVerifying = true);
+
+    try {
+      final bedrockResponse = await BedrockClient().verifyOtp(
+        widget.phoneNumber,
+        otpCode,
+      );
+      if (bedrockResponse == null) {
+        throw Exception('OTP verification failed');
+      }
+
+      _hasSubmittedOtp = true;
+      final bool isNewUser = bedrockResponse['is_new_user'] ?? false;
+      final String bedrockUserId = bedrockResponse['user_id'] ?? '';
+
+      if (!mounted) return;
+
+      if (isNewUser) {
+        _goToRegistration(bedrockUserId);
+        return;
+      }
+
+      final users = await BedrockClient().queryCollection(
+        'users',
+        params: {'uid': bedrockUserId},
+      );
+
+      if (!mounted) return;
+
+      if (users.isEmpty) {
+        _goToRegistration(bedrockUserId);
+        return;
+      }
+
+      final userDataWrapper = users.first;
+      final userData = userDataWrapper['data'] ?? {};
+      final userType = userData['userType'] ?? '';
+      final profileCompleted = userData['profileCompleted'] == true;
+
+      if (!profileCompleted) {
+        _goToRegistration(bedrockUserId);
+        return;
+      }
+
+      await _storeProfile(bedrockUserId, userType, userData);
+      await NotificationService.requestPermissionAndSyncToken();
+
+      if (!mounted) return;
+
+      if (userType == 'barber') {
+        Navigator.pushReplacement(context, slideUpRoute(const BarberHome()));
+      } else if (userType == 'customer') {
+        Navigator.pushReplacement(context, slideUpRoute(const CustomerHome()));
+      } else {
+        _goToRegistration(bedrockUserId);
+      }
+    } catch (e) {
+      _hasSubmittedOtp = false;
+      if (!mounted) return;
+      setState(() => _isVerifying = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('OTP verification failed: $e')));
+      await _wrongOtpFeedback();
+    }
+  }
+
+  Future<void> _wrongOtpFeedback() async {
+    await HapticFeedback.mediumImpact();
+    for (final offset in const [10.0, -10.0, 7.0, -7.0, 0.0]) {
+      if (!mounted) return;
+      setState(() => _otpShakeOffset = offset);
+      await Future.delayed(const Duration(milliseconds: 45));
+    }
+  }
+
+  Future<void> _storeProfile(
+    String userId,
+    String userType,
+    Map<String, dynamic> userData,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userId', userId);
+    await prefs.setString('role', userType);
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('name', userData['name'] ?? '');
+    await prefs.setString('barberName', userData['name'] ?? '');
+    await prefs.setString('phone', userData['phone'] ?? '');
+    await prefs.setString('email', userData['email'] ?? '');
+    await prefs.setString('shopName', userData['shopName'] ?? '');
+
+    if (userData['location'] != null) {
+      final location = userData['location'];
+      await prefs.setDouble('lat', location['lat'] ?? 0.0);
+      await prefs.setDouble('lng', location['lng'] ?? 0.0);
+      final city = location['city']?.toString().trim() ?? '';
+      final pincode = location['pincode']?.toString().trim() ?? '';
+      final label = [
+        city,
+        pincode,
+      ].where((part) => part.isNotEmpty).join(' - ');
+      if (label.isNotEmpty) {
+        await prefs.setString('locationLabel', label);
+      } else if ((location['label']?.toString().trim() ?? '').isNotEmpty) {
+        await prefs.setString('locationLabel', location['label'].toString());
+      }
+    }
+
+    await prefs.setBool('isActive', userData['isActive'] ?? false);
+    await prefs.setStringList(
+      'shopPhotos',
+      List<String>.from(userData['shopPhotos'] ?? []),
+    );
+  }
+
+  void _goToRegistration(String userId) {
+    Navigator.pushReplacement(
+      context,
+      slideUpRoute(Choose(phoneNumber: widget.phoneNumber, userId: userId)),
+    );
+  }
+
+  Future<void> _resendOtp() async {
+    if (_secondsRemaining > 0 || _isVerifying) return;
+    if (_remainingRequests <= 0) {
+      _showLimitMessage();
+      return;
+    }
+
+    if (_remainingRequests == 1) {
+      final shouldContinue = await _confirmLastOtpRequest();
+      if (shouldContinue != true) return;
+    }
+
+    final response = await BedrockClient().requestOtp(widget.phoneNumber);
+    if (!mounted) return;
+
+    if (response == null || response['success'] != true) {
+      _applyOtpRequestState(response);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_otpRequestError(response))));
+      return;
+    }
+
+    _otpController.clear();
+    _applyOtpRequestState(response);
+    setState(() {
+      otpCode = '';
+      _hasSubmittedOtp = false;
+      _isVerifying = false;
+      _secondsRemaining = _resendCooldownSeconds;
+    });
+    _startResendTimer();
+    _startOtpListener();
+  }
+
+  void _applyOtpRequestState(Map<String, dynamic>? response) {
+    if (response == null) return;
+    final remaining = response['remaining_requests'];
+    final cooldown = response['cooldown_seconds'];
+    final maxRequests = response['max_requests'];
+    final retryAfter = response['retry_after_seconds'];
+
+    if (remaining is int) _remainingRequests = remaining;
+    if (cooldown is int) _resendCooldownSeconds = cooldown;
+    if (maxRequests is int) _maxOtpRequests = maxRequests;
+    if (retryAfter is int) _retryAfterSeconds = retryAfter;
+  }
+
+  String _otpRequestError(Map<String, dynamic>? response) {
+    if (response == null) return 'Failed to resend OTP';
+    final error = response['error']?.toString();
+    if (error != null && error.isNotEmpty) return error;
+    return 'Failed to resend OTP';
+  }
+
+  Future<bool?> _confirmLastOtpRequest() {
+    return showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.grey[900],
+            title: const Text(
+              'Last OTP request',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'This is your last OTP request. If you do not verify with this OTP, you will need to wait 4 hours before requesting another code.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Send last OTP'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showLimitMessage() {
+    final hours =
+        _retryAfterSeconds == null
+            ? '4 hours'
+            : '${((_retryAfterSeconds! / 3600).ceil()).clamp(1, 4)} hours';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('OTP request limit reached. Try again in $hours.'),
+      ),
+    );
+  }
+
   @override
   void dispose() {
-    _timer.cancel();
+    _timer?.cancel();
+    cancel();
+    _otpController.dispose();
     super.dispose();
   }
 
@@ -82,207 +372,95 @@ class _OTPScreenState extends State<OTPScreen> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 50),
-              AnimatedOpacity(
-                opacity: _iconOpacity,
-                duration: const Duration(milliseconds: 600),
-                child: Image.asset('assets/images/otp.png', height: 200),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
               ),
-              const SizedBox(height: 20),
-              AnimatedOpacity(
-                opacity: _textOpacity,
-                duration: const Duration(milliseconds: 600),
-                child: Text(
-                  'Enter the OTP sent to\n${widget.phoneNumber}',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    color: Colors.white70,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 30),
-              buildOtpLoginUI(),
-
-              const SizedBox(height: 10),
-              const SizedBox(height: 15),
-              Center(
-                child: AnimatedGradientBorder(
-                  borderSize: 2,
-                  glowSize: 10,
-                  gradientColors: [
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.transparent,
-                    Colors.purple.shade50,
-                  ],
-                  borderRadius: const BorderRadius.all(Radius.circular(999)),
-                  child: InkWell(
-                    onTap: () async {
-                      if (otpCode.length != 6) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please enter a valid 6-digit OTP'),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const Spacer(flex: 2),
+                      AnimatedOpacity(
+                        opacity: _iconOpacity,
+                        duration: const Duration(milliseconds: 600),
+                        child: Image.asset('assets/images/otp.png', height: 200),
+                      ),
+                      const SizedBox(height: 20),
+                      AnimatedOpacity(
+                        opacity: _textOpacity,
+                        duration: const Duration(milliseconds: 600),
+                        child: Text(
+                          'Enter the OTP sent to\n${widget.phoneNumber}',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            color: Colors.white70,
+                            fontSize: 16,
                           ),
-                        );
-                        return;
-                      }
-
-                      try {
-                        final bedrockResponse = await BedrockClient().verifyOtp(
-                          widget.phoneNumber,
-                          otpCode,
-                        );
-                        if (bedrockResponse == null) {
-                          throw Exception("OTP verification failed");
-                        }
-
-                        final bool isNewUser =
-                            bedrockResponse['is_new_user'] ?? false;
-                        final String bedrockUserId =
-                            bedrockResponse['user_id'] ?? '';
-
-                        if (isNewUser) {
-                          // 🔹 New user → Go to role selection & registration
-                          Navigator.pushReplacement(
-                            context,
-                            slideUpRoute(
-                              Choose(
-                                phoneNumber: widget.phoneNumber,
-                                userId: bedrockUserId,
+                        ),
+                      ),
+                      const Spacer(flex: 3),
+                      buildOtpLoginUI(),
+                      const SizedBox(height: 35),
+                      Center(
+                        child: AnimatedGradientBorder(
+                          borderSize: 2,
+                          glowSize: 10,
+                          gradientColors: [
+                            Colors.transparent,
+                            Colors.transparent,
+                            Colors.transparent,
+                            Colors.purple.shade50,
+                          ],
+                          borderRadius: const BorderRadius.all(Radius.circular(999)),
+                          child: InkWell(
+                            onTap:
+                                _isVerifying
+                                    ? null
+                                    : () => _verifyOtp(showLengthError: true),
+                            child: Opacity(
+                              opacity: _isVerifying ? 0.6 : 1,
+                              child: Container(
+                                width: 60,
+                                height: 60,
+                                decoration: const BoxDecoration(
+                                  color: Colors.black,
+                                  shape: BoxShape.circle,
+                                ),
+                                child:
+                                    _isVerifying
+                                        ? const Padding(
+                                          padding: EdgeInsets.all(18),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                        : const Icon(
+                                          CupertinoIcons.arrow_right,
+                                          color: Colors.white,
+                                          size: 30,
+                                        ),
                               ),
                             ),
-                          );
-                        } else {
-                          // 🔹 Existing user → Fetch details from Bedrock and route to home
-                          final users = await BedrockClient().queryCollection(
-                            'users',
-                            params: {'uid': bedrockUserId},
-                          );
-
-                          if (users.isNotEmpty) {
-                            final userDataWrapper = users.first;
-                            final userData = userDataWrapper['data'] ?? {};
-                            final userType = userData['userType'] ?? '';
-                            final profileCompleted =
-                                userData['profileCompleted'] == true;
-
-                            if (!profileCompleted) {
-                              Navigator.pushReplacement(
-                                context,
-                                slideUpRoute(
-                                  Choose(
-                                    phoneNumber: widget.phoneNumber,
-                                    userId: bedrockUserId,
-                                  ),
-                                ),
-                              );
-                            } else {
-                              final prefs =
-                                  await SharedPreferences.getInstance();
-                              await prefs.setString('userId', bedrockUserId);
-                              await prefs.setString('role', userType);
-                              await prefs.setBool('isLoggedIn', true);
-
-                              // Save full profile to SharedPreferences for offline/quick access
-                              await prefs.setString(
-                                'barberName',
-                                userData['name'] ?? '',
-                              );
-                              await prefs.setString(
-                                'phone',
-                                userData['phone'] ?? '',
-                              );
-                              await prefs.setString(
-                                'email',
-                                userData['email'] ?? '',
-                              );
-                              await prefs.setString(
-                                'shopName',
-                                userData['shopName'] ?? '',
-                              );
-
-                              if (userData['location'] != null) {
-                                await prefs.setDouble(
-                                  'lat',
-                                  userData['location']['lat'] ?? 0.0,
-                                );
-                                await prefs.setDouble(
-                                  'lng',
-                                  userData['location']['lng'] ?? 0.0,
-                                );
-                              }
-
-                              await prefs.setBool(
-                                'isActive',
-                                userData['isActive'] ?? false,
-                              );
-                              await prefs.setStringList(
-                                'shopPhotos',
-                                List<String>.from(userData['shopPhotos'] ?? []),
-                              );
-
-                              if (userType == 'barber') {
-                                Navigator.pushReplacement(
-                                  context,
-                                  slideUpRoute(const BarberHome()),
-                                );
-                              } else if (userType == 'customer') {
-                                Navigator.pushReplacement(
-                                  context,
-                                  slideUpRoute(const CustomerHome()),
-                                );
-                              }
-                            }
-                          } else {
-                            // Handshake succeeded but no profile found (should not happen if is_new_user was false)
-                            Navigator.pushReplacement(
-                              context,
-                              slideUpRoute(
-                                Choose(
-                                  phoneNumber: widget.phoneNumber,
-                                  userId: bedrockUserId,
-                                ),
-                              ),
-                            );
-                          }
-                        }
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('OTP verification failed: $e'),
                           ),
-                        );
-                      }
-                    },
-
-                    child: Container(
-                      width: 60,
-                      height: 60,
-                      decoration: const BoxDecoration(
-                        color: Colors.black,
-                        shape: BoxShape.circle,
+                        ),
                       ),
-                      child: const Icon(
-                        CupertinoIcons.arrow_right,
-                        color: Colors.white,
-                        size: 30,
-                      ),
-                    ),
+                      const Spacer(flex: 1),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -290,43 +468,76 @@ class _OTPScreenState extends State<OTPScreen> {
   Widget buildOtpLoginUI() {
     return Column(
       children: [
-        PinCodeTextField(
-          appContext: context,
-          length: 6,
-          keyboardType: TextInputType.number,
-          animationType: AnimationType.fade,
-          textStyle: const TextStyle(color: Colors.white, fontSize: 20),
-          pinTheme: PinTheme(
-            shape: PinCodeFieldShape.box,
-            borderRadius: BorderRadius.circular(10),
-            fieldHeight: 50,
-            fieldWidth: 40,
-            activeColor: Colors.white,
-            selectedColor: Colors.purpleAccent,
-            inactiveColor: Colors.white38,
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 45),
+          transform: Matrix4.translationValues(_otpShakeOffset, 0, 0),
+          child: PinCodeTextField(
+            appContext: context,
+            controller: _otpController,
+            autoDisposeControllers: false,
+            length: 6,
+            keyboardType: TextInputType.number,
+            autoFocus: true,
+            autoDismissKeyboard: true,
+            enablePinAutofill: true,
+            animationType: AnimationType.fade,
+            textStyle: const TextStyle(color: Colors.white, fontSize: 20),
+            pinTheme: PinTheme(
+              shape: PinCodeFieldShape.box,
+              borderRadius: BorderRadius.circular(10),
+              fieldHeight: 50,
+              fieldWidth: 40,
+              activeColor: Colors.white,
+              selectedColor: Colors.purpleAccent,
+              inactiveColor: Colors.white38,
+            ),
+            backgroundColor: Colors.black,
+            enableActiveFill: false,
+            onChanged: _onOtpChanged,
+            onCompleted: (value) {
+              otpCode = value.trim();
+              _verifyOtp();
+            },
           ),
-          backgroundColor: Colors.black,
-          enableActiveFill: false,
-          onChanged: (value) => setState(() => otpCode = value),
         ),
+        if (_isVerifying) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Verifying OTP...',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ],
         const SizedBox(height: 10),
         _secondsRemaining > 0
             ? Text(
               'Resend OTP in $_secondsRemaining s',
               style: const TextStyle(color: Colors.white54),
             )
+            : _remainingRequests <= 0
+            ? Text(
+              'OTP request limit reached. Try again after 4 hours.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.redAccent),
+            )
             : TextButton(
-              onPressed: () {
-                setState(() {
-                  _secondsRemaining = 30;
-                  _startResendTimer();
-                });
-              },
+              onPressed: _resendOtp,
               child: const Text(
                 'Resend OTP',
                 style: TextStyle(color: Colors.white),
               ),
             ),
+        const SizedBox(height: 6),
+        Text(
+          _remainingRequests == 1
+              ? 'Last OTP request remaining'
+              : '$_remainingRequests of $_maxOtpRequests OTP requests remaining',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color:
+                _remainingRequests <= 1 ? Colors.orangeAccent : Colors.white38,
+            fontSize: 12,
+          ),
+        ),
       ],
     );
   }

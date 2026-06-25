@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:geolocator/geolocator.dart';
@@ -14,8 +12,9 @@ import 'package:kesh_kart/customer/home.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:http/http.dart' as http;
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as path;
+import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/services/notification_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   final String phoneNumber;
@@ -57,14 +56,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   int _secondsRemaining = 30;
   double _taglineOpacity = 0.0;
 
-  final TextEditingController _shopAddressController = TextEditingController();
-  List<String> _shopPhotos = [];
+  final List<String> _shopPhotos = [];
   double? _latitude;
   double? _longitude;
 
   bool _isSubmitting = false;
 
-  List<File> _pendingPhotoFiles = [];
+  final List<File> _pendingPhotoFiles = [];
 
   @override
   void initState() {
@@ -122,62 +120,74 @@ class _RegisterScreenState extends State<RegisterScreen> {
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 20),
-
-              // 🔹 Sign Up Illustration
-              AnimatedOpacity(
-                opacity: _iconOpacity,
-                duration: const Duration(milliseconds: 600),
-                child: Image.asset('assets/images/SignUp.png', height: 200),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight,
               ),
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 20),
 
-              const SizedBox(height: 10),
+                      // 🔹 Sign Up Illustration
+                      AnimatedOpacity(
+                        opacity: _iconOpacity,
+                        duration: const Duration(milliseconds: 600),
+                        child: Image.asset('assets/images/SignUp.png', height: 200),
+                      ),
 
-              // 🔹 Tagline
-              AnimatedOpacity(
-                opacity: _taglineOpacity,
-                duration: const Duration(milliseconds: 800),
-                curve: Curves.easeInOut,
-                child: const Padding(
-                  padding: EdgeInsets.only(bottom: 20),
-                  child: Text(
-                    'Will require a few details to get started',
-                    style: TextStyle(
-                      fontFamily: 'Poppins',
-                      fontSize: 17,
-                      color: Colors.white70,
-                      fontStyle: FontStyle.italic,
-                    ),
-                    textAlign: TextAlign.center,
+                      const SizedBox(height: 10),
+
+                      // 🔹 Tagline
+                      AnimatedOpacity(
+                        opacity: _taglineOpacity,
+                        duration: const Duration(milliseconds: 800),
+                        curve: Curves.easeInOut,
+                        child: const Padding(
+                          padding: EdgeInsets.only(bottom: 20),
+                          child: Text(
+                            'Will require a few details to get started',
+                            style: TextStyle(
+                              fontFamily: 'Poppins',
+                              fontSize: 17,
+                              color: Colors.white70,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // 🔹 Fields (form or shimmer)
+                      if (widget.role.trim().toLowerCase() == 'customer')
+                        _isSubmitting
+                            ? _buildCustomerFormShimmer()
+                            : _buildCustomerFormFields()
+                      else
+                        _isSubmitting
+                            ? _buildBarberFormShimmer()
+                            : _buildBarberFormFields(),
+
+                      const Spacer(),
+
+                      // 🔹 Submit button (always visible)
+                      _buildSubmitButton(),
+                      const SizedBox(height: 20),
+                    ],
                   ),
                 ),
               ),
-
-              const SizedBox(height: 20),
-
-              // 🔹 Fields (form or shimmer)
-              if (widget.role.trim().toLowerCase() == 'customer')
-                _isSubmitting
-                    ? _buildCustomerFormShimmer()
-                    : _buildCustomerFormFields()
-              else
-                _isSubmitting
-                    ? _buildBarberFormShimmer()
-                    : _buildBarberFormFields(),
-
-              const SizedBox(height: 40),
-
-              // 🔹 Submit button (always visible)
-              _buildSubmitButton(),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -236,7 +246,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
   }
 
-  Widget _buildLocationPicker() {
+  Widget _buildLocationPicker({String? emptyLabel}) {
     return _isFetchingLocation
         ? Shimmer.fromColors(
           baseColor: Colors.grey.shade800,
@@ -269,7 +279,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text(
-                      'Location permission is required to pick your shop location.',
+                      'Location permission is required to continue.',
                     ),
                   ),
                 );
@@ -313,7 +323,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Text(
                   _latitude != null
                       ? 'Location: ($_latitude, $_longitude)'
-                      : 'Tap to pick shop location',
+                      : (emptyLabel ?? 'Tap to pick location'),
                   style: const TextStyle(color: Colors.white70),
                 ),
               ],
@@ -448,21 +458,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _handleSubmit() async {
     final role = widget.role.trim().toLowerCase();
     final uid = widget.userId;
+    final fullAddress = [
+      _shopNumberController.text.trim(),
+      _buildingNameController.text.trim(),
+      _localityController.text.trim(),
+      _landmarkController.text.trim(),
+      _cityController.text.trim(),
+      _stateController.text.trim(),
+      _pinCodeController.text.trim(),
+    ].where((part) => part.isNotEmpty).join(', ');
 
     if (role == 'customer') {
       if (_nameController.text.trim().isEmpty ||
           _emailController.text.trim().isEmpty ||
           _passwordController.text.isEmpty ||
-          _confirmPasswordController.text != _passwordController.text) {
+          _confirmPasswordController.text != _passwordController.text ||
+          _latitude == null ||
+          _longitude == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please fill all fields correctly')),
+          const SnackBar(
+            content: Text('Please fill all fields and pick your location'),
+          ),
         );
         return;
       }
     }
 
     if (role == 'barber') {
-      if (_shopAddressController.text.trim().isEmpty ||
+      if (_shopNameController.text.trim().isEmpty ||
+          _nameController.text.trim().isEmpty ||
+          _emailController.text.trim().isEmpty ||
+          _passwordController.text.isEmpty ||
+          _confirmPasswordController.text != _passwordController.text ||
+          _cityController.text.trim().isEmpty ||
+          _stateController.text.trim().isEmpty ||
+          _pinCodeController.text.trim().isEmpty ||
+          fullAddress.isEmpty ||
           _latitude == null ||
           _longitude == null ||
           _pendingPhotoFiles.isEmpty) {
@@ -474,15 +505,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       final email = _emailController.text.trim();
 
-      // 🔍 Check if email already exists in Firestore
-      final emailSnapshot =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .where('email', isEqualTo: email)
-              .limit(1)
-              .get();
+      // 🔍 Check if email already exists in Bedrock
+      final existingUsers = await BedrockClient().queryCollection(
+        'users',
+        params: {'email': email},
+      );
 
-      if (emailSnapshot.docs.isNotEmpty) {
+      if (existingUsers.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -494,16 +523,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     }
 
-    final fullAddress = [
-      _shopNumberController.text.trim(),
-      _buildingNameController.text.trim(),
-      _localityController.text.trim(),
-      _landmarkController.text.trim(),
-      _cityController.text.trim(),
-      _stateController.text.trim(),
-      _pinCodeController.text.trim(),
-    ].where((part) => part.isNotEmpty).join(', ');
-
     setState(() => _isSubmitting = true);
 
     ScaffoldMessenger.of(
@@ -514,41 +533,98 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     final Map<String, dynamic> userData = {
       'uid': uid,
-      'phone': '+91${widget.phoneNumber}',
+      'phone': widget.phoneNumber,
       'name': _nameController.text.trim(),
       'email': _emailController.text.trim(),
       'userType': role,
       'hasPassword': true,
       'profileCompleted': true,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': DateTime.now().toIso8601String(),
     };
+
+    final city = _cityController.text.trim();
+    final state = _stateController.text.trim();
+    final pincode = _pinCodeController.text.trim();
+    final locality = _localityController.text.trim();
+    final locationLabel = [
+      city,
+      pincode,
+    ].where((part) => part.isNotEmpty).join(' - ');
+
+    if (_latitude != null && _longitude != null) {
+      userData['location'] = {
+        'lat': _latitude,
+        'lng': _longitude,
+        'city': city,
+        'state': state,
+        'pincode': pincode,
+        'locality': locality,
+        'address': fullAddress,
+        'label': locationLabel.isEmpty ? fullAddress : locationLabel,
+      };
+    }
 
     List<String> uploadedUrls = [];
 
     for (File file in _pendingPhotoFiles) {
       final fileName = path.basename(file.path);
-      final ref = FirebaseStorage.instance.ref().child(
-        'shop_photos/${DateTime.now().millisecondsSinceEpoch}_$fileName',
+      final storagePath =
+          'shop_photos/$uid/${DateTime.now().millisecondsSinceEpoch}_$fileName';
+      debugPrint(
+        '[KeshKartUpload] register upload uid=$uid localPath=${file.path} '
+        'storagePath=$storagePath',
       );
+      final downloadUrl = await BedrockClient().uploadFile(file, storagePath);
 
-      final snapshot = await ref.putFile(file);
-      final downloadUrl = await snapshot.ref.getDownloadURL();
+      if (downloadUrl == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to upload shop photo to Bedrock."),
+          ),
+        );
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
       uploadedUrls.add(downloadUrl);
+      debugPrint(
+        '[KeshKartUpload] register upload saved count=${uploadedUrls.length}',
+      );
     }
 
     if (role == 'barber') {
       userData.addAll({
         'shopName': _shopNameController.text.trim(),
         'shopAddress': fullAddress,
-        'location': {'lat': _latitude, 'lng': _longitude},
+        'location': {
+          'lat': _latitude,
+          'lng': _longitude,
+          'city': city,
+          'state': state,
+          'pincode': pincode,
+          'locality': locality,
+          'address': fullAddress,
+          'label': locationLabel.isEmpty ? fullAddress : locationLabel,
+        },
         'shopPhotos': uploadedUrls,
+        'verificationStatus': 'unverified',
+        'isDiscoverable': false,
       });
     }
 
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .set(userData, SetOptions(merge: true));
+    // 🧱 SAVE TO BEDROCK
+    // Use the UID as the document ID for the 'users' collection
+    final result = await BedrockClient().updateDocument('users', uid, userData);
+
+    if (result == null) {
+      // If update fails (might be because doc doesn't exist yet), try create or handle error
+      debugPrint("Bedrock Save Failed. Check your rules and API connectivity.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to save profile to Bedrock.")),
+      );
+      setState(() => _isSubmitting = false);
+      return;
+    }
 
     if (!mounted) return;
 
@@ -557,17 +633,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await prefs.setString('role', role);
     await prefs.setBool('isLoggedIn', true);
 
+    await prefs.setString('name', _nameController.text.trim());
     await prefs.setString('barberName', _nameController.text.trim());
     await prefs.setString('shopName', _shopNameController.text.trim());
     await prefs.setString('email', _emailController.text.trim());
     await prefs.setString('phone', widget.phoneNumber);
-    await prefs.setDouble('lat', _latitude!);
-    await prefs.setDouble('lng', _longitude!);
+    if (_latitude != null && _longitude != null) {
+      await prefs.setDouble('lat', _latitude!);
+      await prefs.setDouble('lng', _longitude!);
+      await prefs.setString(
+        'locationLabel',
+        locationLabel.isEmpty ? 'Location saved' : locationLabel,
+      );
+    }
     await prefs.setStringList('shopPhotos', uploadedUrls);
     await prefs.setBool('isActive', true);
-    await prefs.setString('userType', 'barber');
-    await prefs.setString('userId', FirebaseAuth.instance.currentUser!.uid);
+    await prefs.setString('userType', role);
     await prefs.setBool('isLoggedIn', true);
+    await NotificationService.requestPermissionAndSyncToken();
 
     if (role == 'barber') {
       Navigator.pushReplacement(
@@ -695,6 +778,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           toggleObscure:
               () => setState(() => _obscureConfirm = !_obscureConfirm),
         ),
+        const SizedBox(height: 20),
+        _buildLocationPicker(emptyLabel: 'Tap to pick your location'),
       ],
     );
   }
@@ -798,57 +883,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  void _previewOrDeletePhoto(String url) {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            backgroundColor: Colors.black87,
-            title: const Text(
-              'Photo Options',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.network(url, height: 150),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(context); // close dialog
-
-                    try {
-                      final ref = FirebaseStorage.instance.refFromURL(url);
-                      await ref.delete();
-                    } catch (e) {
-                      debugPrint("Firebase delete failed: $e");
-                    }
-
-                    setState(() => _shopPhotos.remove(url));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Photo removed')),
-                    );
-                  },
-                  icon: const Icon(Icons.delete),
-                  label: const Text('Delete Photo'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                ),
-              ],
-            ),
-          ),
-    );
-  }
-
   Future<void> _checkAndCleanPreviousUploads() async {
     try {
-      final doc =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.userId)
-              .get();
+      final doc = await BedrockClient().getDocument('users', widget.userId);
 
       final isProfileCompleted =
-          doc.exists && (doc.data()?['profileCompleted'] == true);
+          doc != null && (doc['data']?['profileCompleted'] == true);
 
       if (!isProfileCompleted) {
         await _cleanupPreviousUploads();
@@ -870,8 +910,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     for (String url in tempPhotos) {
       try {
         debugPrint("🧹 Deleting: $url");
-        final ref = FirebaseStorage.instance.refFromURL(url);
-        await ref.delete();
+        debugPrint(
+          "Skipping Bedrock object deletion for previous temp upload: $url",
+        );
       } catch (e) {
         debugPrint("❌ Failed to delete $url: $e");
       }
