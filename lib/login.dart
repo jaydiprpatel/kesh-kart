@@ -4,8 +4,8 @@ import 'package:glowy_borders/glowy_borders.dart';
 import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/customer/home.dart';
+import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/otp_screen.dart';
-import 'package:kesh_kart/register.dart';
 import 'package:kesh_kart/services/notification_service.dart';
 import 'package:kesh_kart/services/truecaller_login_service.dart';
 import 'package:kesh_kart/commons.dart';
@@ -26,7 +26,6 @@ class _LogInScreenState extends State<LogInScreen> {
   bool isLoading = false;
   bool _isTruecallerLoading = false;
   bool _isTruecallerUsable = false;
-  String _selectedUserType = 'customer';
   final TruecallerLoginService _truecallerLoginService =
       TruecallerLoginService();
   double currentProgress = 0.0;
@@ -65,7 +64,6 @@ class _LogInScreenState extends State<LogInScreen> {
       }
 
       final response = await BedrockClient().loginWithTruecaller(
-        userType: _selectedUserType,
         accessToken: truecallerResult.accessToken,
         authorizationCode: truecallerResult.authorizationCode,
         codeVerifier: truecallerResult.codeVerifier,
@@ -92,10 +90,8 @@ class _LogInScreenState extends State<LogInScreen> {
 
   Future<void> _finishTruecallerLogin(Map<String, dynamic> response) async {
     final userId = response['user_id']?.toString() ?? '';
-    final userType =
-        (response['user_type']?.toString() ?? _selectedUserType).toLowerCase();
-    final phone =
-        response['phone']?.toString() ?? phoneNumberController.text.trim();
+    final userType = (response['user_type']?.toString() ?? '').toLowerCase();
+    final phone = response['phone']?.toString() ?? '';
     if (userId.isEmpty) {
       _showMessage('Truecaller login failed. Please continue with OTP.');
       return;
@@ -106,30 +102,36 @@ class _LogInScreenState extends State<LogInScreen> {
       params: {'uid': userId},
     );
     if (!mounted) return;
-
     if (users.isEmpty) {
-      _goToRegistration(userId, phone, userType);
+      _goToSignupChoice(userId, phone);
       return;
     }
 
     final userDataWrapper = users.first;
     final userData = Map<String, dynamic>.from(userDataWrapper['data'] ?? {});
     final profileCompleted = userData['profileCompleted'] == true;
-
     if (!profileCompleted) {
-      _goToRegistration(userId, phone, userType);
+      _goToSignupChoice(userId, phone);
       return;
     }
 
     await _storeProfile(userId, userType, userData);
     await NotificationService.requestPermissionAndSyncToken();
     if (!mounted) return;
-
     if (userType == 'barber') {
       Navigator.pushReplacement(context, slideUpRoute(const BarberHome()));
-    } else {
+    } else if (userType == 'customer') {
       Navigator.pushReplacement(context, slideUpRoute(const CustomerHome()));
+    } else {
+      _goToSignupChoice(userId, phone);
     }
+  }
+
+  void _goToSignupChoice(String userId, String phone) {
+    Navigator.pushReplacement(
+      context,
+      slideUpRoute(Choose(phoneNumber: phone, userId: userId)),
+    );
   }
 
   Future<void> _storeProfile(
@@ -158,23 +160,6 @@ class _LogInScreenState extends State<LogInScreen> {
       'shopPhotos',
       List<String>.from(userData['shopPhotos'] ?? []),
     );
-  }
-
-  void _goToRegistration(String userId, String phone, String userType) {
-    Navigator.pushReplacement(
-      context,
-      slideUpRoute(
-        RegisterScreen(
-          userId: userId,
-          phoneNumber: phone,
-          role: _roleLabel(userType),
-        ),
-      ),
-    );
-  }
-
-  String _roleLabel(String userType) {
-    return userType == 'barber' ? 'Barber' : 'Customer';
   }
 
   void _showMessage(String message) {
@@ -223,33 +208,6 @@ class _LogInScreenState extends State<LogInScreen> {
     );
   }
 
-  Widget _buildRoleSelector() {
-    return Row(
-      children: [
-        Expanded(child: _roleButton('customer', 'Customer')),
-        const SizedBox(width: 10),
-        Expanded(child: _roleButton('barber', 'Barber')),
-      ],
-    );
-  }
-
-  Widget _roleButton(String value, String label) {
-    final selected = _selectedUserType == value;
-    return OutlinedButton(
-      onPressed:
-          isLoading || _isTruecallerLoading
-              ? null
-              : () => setState(() => _selectedUserType = value),
-      style: OutlinedButton.styleFrom(
-        backgroundColor: selected ? Colors.white : Colors.transparent,
-        foregroundColor: selected ? Colors.black : Colors.white,
-        side: BorderSide(color: selected ? Colors.white : Colors.white38),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-      ),
-      child: Text(label),
-    );
-  }
-
   Widget _buildTruecallerButton() {
     return SizedBox(
       width: double.infinity,
@@ -280,7 +238,7 @@ class _LogInScreenState extends State<LogInScreen> {
                 )
                 : Text(
                   _isTruecallerUsable
-                      ? 'Continue with Truecaller as ${_roleLabel(_selectedUserType)}'
+                      ? 'Continue with Truecaller'
                       : 'Truecaller unavailable - use OTP',
                   textAlign: TextAlign.center,
                 ),
@@ -369,12 +327,12 @@ class _LogInScreenState extends State<LogInScreen> {
                   ),
                 ),
 
-            const SizedBox(height: 18),
-            _buildRoleSelector(),
-            const SizedBox(height: 14),
-            _buildTruecallerButton(),
+            if (_isTruecallerUsable) ...[
+              const SizedBox(height: 18),
+              _buildTruecallerButton(),
+            ],
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 35),
 
             // Login Button
             Center(

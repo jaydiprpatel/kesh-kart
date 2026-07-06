@@ -61,15 +61,15 @@ class BedrockClient {
   }
 
   Future<Map<String, dynamic>?> loginWithTruecaller({
-    required String userType,
+    String? userType,
     String? accessToken,
     String? authorizationCode,
     String? codeVerifier,
   }) async {
-    final body = <String, dynamic>{
-      'project_key': projectKey,
-      'user_type': userType,
-    };
+    final body = <String, dynamic>{'project_key': projectKey};
+    if (userType != null && userType.isNotEmpty) {
+      body['user_type'] = userType;
+    }
     if (accessToken != null && accessToken.isNotEmpty) {
       body['access_token'] = accessToken;
     } else {
