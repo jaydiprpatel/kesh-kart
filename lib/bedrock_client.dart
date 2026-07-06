@@ -60,6 +60,62 @@ class BedrockClient {
     return null;
   }
 
+  Future<Map<String, dynamic>?> loginWithTruecaller({
+    required String userType,
+    String? accessToken,
+    String? authorizationCode,
+    String? codeVerifier,
+  }) async {
+    final body = <String, dynamic>{
+      'project_key': projectKey,
+      'user_type': userType,
+    };
+    if (accessToken != null && accessToken.isNotEmpty) {
+      body['access_token'] = accessToken;
+    } else {
+      body['authorization_code'] = authorizationCode;
+      body['code_verifier'] = codeVerifier;
+    }
+
+    try {
+      final response = await _sendWithRetry(
+        'POST',
+        Uri.parse('$baseUrl/api/v1/auth/truecaller/login/'),
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      );
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        await _storeAuthTokens(decoded);
+      } else {
+        decoded['success'] = false;
+        decoded['status_code'] = response.statusCode;
+      }
+      return decoded;
+    } catch (e) {
+      debugPrint('Truecaller Login Error: $e');
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  Future<void> _storeAuthTokens(Map<String, dynamic> response) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accessToken = response['access_token'];
+    final refreshToken = response['refresh_token'];
+    final userId = response['user_id'];
+    if (accessToken != null) {
+      await prefs.setString('bedrock_token', accessToken.toString());
+    }
+    if (refreshToken != null) {
+      await prefs.setString('bedrock_refresh_token', refreshToken.toString());
+    }
+    if (userId != null) {
+      await prefs.setString('bedrock_user_id', userId.toString());
+    }
+  }
+
   /// Generic authenticated POST to create a document.
   Future<Map<String, dynamic>?> createDocument(
     String collection,

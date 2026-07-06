@@ -1,9 +1,15 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:glowy_borders/glowy_borders.dart';
+import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/customer/home.dart';
 import 'package:kesh_kart/otp_screen.dart';
+import 'package:kesh_kart/register.dart';
+import 'package:kesh_kart/services/notification_service.dart';
+import 'package:kesh_kart/services/truecaller_login_service.dart';
 import 'package:kesh_kart/commons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 
 class LogInScreen extends StatefulWidget {
@@ -18,17 +24,170 @@ class _LogInScreenState extends State<LogInScreen> {
   double _taglineOpacity = 0.0;
   TextEditingController phoneNumberController = TextEditingController();
   bool isLoading = false;
+  bool _isTruecallerLoading = false;
+  bool _isTruecallerUsable = false;
+  String _selectedUserType = 'customer';
+  final TruecallerLoginService _truecallerLoginService =
+      TruecallerLoginService();
   double currentProgress = 0.0;
 
   @override
   void initState() {
     super.initState();
+    _initializeTruecaller();
     Future.delayed(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       setState(() {
         _taglineOpacity = 1.0;
       });
     });
+  }
+
+  Future<void> _initializeTruecaller() async {
+    final usable = await _truecallerLoginService.isUsable;
+    if (!mounted) return;
+    setState(() => _isTruecallerUsable = usable);
+  }
+
+  Future<void> _handleTruecallerLogin() async {
+    if (_isTruecallerLoading || isLoading) return;
+    setState(() => _isTruecallerLoading = true);
+
+    try {
+      final truecallerResult = await _truecallerLoginService.startLogin();
+      if (!mounted) return;
+
+      if (truecallerResult == null ||
+          (!truecallerResult.hasToken &&
+              !truecallerResult.hasAuthorizationCode)) {
+        _showMessage('Truecaller is unavailable. Please continue with OTP.');
+        return;
+      }
+
+      final response = await BedrockClient().loginWithTruecaller(
+        userType: _selectedUserType,
+        accessToken: truecallerResult.accessToken,
+        authorizationCode: truecallerResult.authorizationCode,
+        codeVerifier: truecallerResult.codeVerifier,
+      );
+      if (!mounted) return;
+
+      if (response == null || response['success'] == false) {
+        _showMessage(
+          response?['error']?.toString() ??
+              'Truecaller login failed. Please continue with OTP.',
+        );
+        return;
+      }
+
+      await _finishTruecallerLogin(response);
+    } catch (e) {
+      if (mounted) {
+        _showMessage('Truecaller login failed. Please continue with OTP.');
+      }
+    } finally {
+      if (mounted) setState(() => _isTruecallerLoading = false);
+    }
+  }
+
+  Future<void> _finishTruecallerLogin(Map<String, dynamic> response) async {
+    final userId = response['user_id']?.toString() ?? '';
+    final userType =
+        (response['user_type']?.toString() ?? _selectedUserType).toLowerCase();
+    final phone =
+        response['phone']?.toString() ?? phoneNumberController.text.trim();
+    if (userId.isEmpty) {
+      _showMessage('Truecaller login failed. Please continue with OTP.');
+      return;
+    }
+
+    final users = await BedrockClient().queryCollection(
+      'users',
+      params: {'uid': userId},
+    );
+    if (!mounted) return;
+
+    if (users.isEmpty) {
+      _goToRegistration(userId, phone, userType);
+      return;
+    }
+
+    final userDataWrapper = users.first;
+    final userData = Map<String, dynamic>.from(userDataWrapper['data'] ?? {});
+    final profileCompleted = userData['profileCompleted'] == true;
+
+    if (!profileCompleted) {
+      _goToRegistration(userId, phone, userType);
+      return;
+    }
+
+    await _storeProfile(userId, userType, userData);
+    await NotificationService.requestPermissionAndSyncToken();
+    if (!mounted) return;
+
+    if (userType == 'barber') {
+      Navigator.pushReplacement(context, slideUpRoute(const BarberHome()));
+    } else {
+      Navigator.pushReplacement(context, slideUpRoute(const CustomerHome()));
+    }
+  }
+
+  Future<void> _storeProfile(
+    String userId,
+    String userType,
+    Map<String, dynamic> userData,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userId', userId);
+    await prefs.setString('role', userType);
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('name', userData['name'] ?? '');
+    await prefs.setString('barberName', userData['name'] ?? '');
+    await prefs.setString('phone', userData['phone'] ?? '');
+    await prefs.setString('email', userData['email'] ?? '');
+    await prefs.setString('shopName', userData['shopName'] ?? '');
+
+    if (userData['location'] != null) {
+      final location = userData['location'];
+      await prefs.setDouble('lat', location['lat'] ?? 0.0);
+      await prefs.setDouble('lng', location['lng'] ?? 0.0);
+    }
+
+    await prefs.setBool('isActive', userData['isActive'] ?? false);
+    await prefs.setStringList(
+      'shopPhotos',
+      List<String>.from(userData['shopPhotos'] ?? []),
+    );
+  }
+
+  void _goToRegistration(String userId, String phone, String userType) {
+    Navigator.pushReplacement(
+      context,
+      slideUpRoute(
+        RegisterScreen(
+          userId: userId,
+          phoneNumber: phone,
+          role: _roleLabel(userType),
+        ),
+      ),
+    );
+  }
+
+  String _roleLabel(String userType) {
+    return userType == 'barber' ? 'Barber' : 'Customer';
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  void dispose() {
+    _truecallerLoginService.dispose();
+    phoneNumberController.dispose();
+    super.dispose();
   }
 
   @override
@@ -55,15 +214,76 @@ class _LogInScreenState extends State<LogInScreen> {
           return SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-              ),
-              child: IntrinsicHeight(
-                child: Center(child: loginBlock()),
-              ),
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: IntrinsicHeight(child: Center(child: loginBlock())),
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildRoleSelector() {
+    return Row(
+      children: [
+        Expanded(child: _roleButton('customer', 'Customer')),
+        const SizedBox(width: 10),
+        Expanded(child: _roleButton('barber', 'Barber')),
+      ],
+    );
+  }
+
+  Widget _roleButton(String value, String label) {
+    final selected = _selectedUserType == value;
+    return OutlinedButton(
+      onPressed:
+          isLoading || _isTruecallerLoading
+              ? null
+              : () => setState(() => _selectedUserType = value),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: selected ? Colors.white : Colors.transparent,
+        foregroundColor: selected ? Colors.black : Colors.white,
+        side: BorderSide(color: selected ? Colors.white : Colors.white38),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      ),
+      child: Text(label),
+    );
+  }
+
+  Widget _buildTruecallerButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: OutlinedButton(
+        onPressed:
+            !_isTruecallerUsable || isLoading || _isTruecallerLoading
+                ? null
+                : _handleTruecallerLogin,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: const Color(0xFF0A66C2),
+          foregroundColor: Colors.white,
+          disabledForegroundColor: Colors.white38,
+          side: BorderSide.none,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child:
+            _isTruecallerLoading
+                ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                : Text(
+                  _isTruecallerUsable
+                      ? 'Continue with Truecaller as ${_roleLabel(_selectedUserType)}'
+                      : 'Truecaller unavailable - use OTP',
+                  textAlign: TextAlign.center,
+                ),
       ),
     );
   }
@@ -149,7 +369,12 @@ class _LogInScreenState extends State<LogInScreen> {
                   ),
                 ),
 
-            const SizedBox(height: 35),
+            const SizedBox(height: 18),
+            _buildRoleSelector(),
+            const SizedBox(height: 14),
+            _buildTruecallerButton(),
+
+            const SizedBox(height: 28),
 
             // Login Button
             Center(
