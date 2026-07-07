@@ -43,43 +43,84 @@ class _LogInScreenState extends State<LogInScreen> {
   }
 
   Future<void> _initializeTruecaller() async {
+    debugPrint('[Truecaller UI Diagnostic] Initializing Truecaller state...');
     final usable = await _truecallerLoginService.isUsable;
+    debugPrint('[Truecaller UI Diagnostic] Truecaller usability: $usable');
     if (!mounted) return;
     setState(() => _isTruecallerUsable = usable);
   }
 
   Future<void> _handleTruecallerLogin() async {
-    if (_isTruecallerLoading || isLoading) return;
+    debugPrint('[Truecaller UI Diagnostic] _handleTruecallerLogin() invoked');
+    if (_isTruecallerLoading || isLoading) {
+      debugPrint(
+        '[Truecaller UI Diagnostic] Action blocked: loading status is active (loading=$isLoading, tcLoading=$_isTruecallerLoading)',
+      );
+      return;
+    }
     setState(() => _isTruecallerLoading = true);
 
     try {
+      debugPrint('[Truecaller UI Diagnostic] Starting Truecaller login...');
       final truecallerResult = await _truecallerLoginService.startLogin();
+      debugPrint(
+        '[Truecaller UI Diagnostic] Truecaller result: $truecallerResult',
+      );
       if (!mounted) return;
 
-      if (truecallerResult == null ||
-          (!truecallerResult.hasToken &&
-              !truecallerResult.hasAuthorizationCode)) {
+      if (truecallerResult == null) {
+        debugPrint('[Truecaller UI Diagnostic] truecallerResult is null');
         _showMessage('Truecaller is unavailable. Please continue with OTP.');
         return;
       }
 
+      debugPrint(
+        '[Truecaller UI Diagnostic] Result state - hasToken: ${truecallerResult.hasToken}, hasAuthCode: ${truecallerResult.hasAuthorizationCode}, error: ${truecallerResult.errorMessage}',
+      );
+
+      if (!truecallerResult.hasToken &&
+          !truecallerResult.hasAuthorizationCode) {
+        debugPrint(
+          '[Truecaller UI Diagnostic] Truecaller login failed. Surfacing error message: ${truecallerResult.errorMessage}',
+        );
+        _showMessage(
+          truecallerResult.errorMessage ??
+              'Truecaller is unavailable. Please continue with OTP.',
+        );
+        return;
+      }
+
+      debugPrint(
+        '[Truecaller UI Diagnostic] Requesting backend authentication...',
+      );
       final response = await BedrockClient().loginWithTruecaller(
         accessToken: truecallerResult.accessToken,
         authorizationCode: truecallerResult.authorizationCode,
         codeVerifier: truecallerResult.codeVerifier,
       );
+      debugPrint(
+        '[Truecaller UI Diagnostic] Backend response received: $response',
+      );
       if (!mounted) return;
 
       if (response == null || response['success'] == false) {
-        _showMessage(
-          response?['error']?.toString() ??
-              'Truecaller login failed. Please continue with OTP.',
-        );
+        final errText =
+            response?['error']?.toString() ??
+            'Truecaller login failed. Please continue with OTP.';
+        debugPrint('[Truecaller UI Diagnostic] Backend auth failed: $errText');
+        _showMessage(errText);
         return;
       }
 
+      debugPrint(
+        '[Truecaller UI Diagnostic] Backend auth succeeded. Finalizing login...',
+      );
       await _finishTruecallerLogin(response);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      debugPrint(
+        '[Truecaller UI Diagnostic] Unhandled error during Truecaller login flow: $e',
+      );
+      debugPrint('[Truecaller UI Diagnostic] Stack trace: $stackTrace');
       if (mounted) {
         _showMessage('Truecaller login failed. Please continue with OTP.');
       }
@@ -236,11 +277,27 @@ class _LogInScreenState extends State<LogInScreen> {
                     color: Colors.white,
                   ),
                 )
-                : Text(
-                  _isTruecallerUsable
-                      ? 'Continue with Truecaller'
-                      : 'Truecaller unavailable - use OTP',
-                  textAlign: TextAlign.center,
+                : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset(
+                      'assets/images/truecaller_logo.png',
+                      width: 24,
+                      height: 24,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        _isTruecallerUsable
+                            ? 'Continue with Truecaller'
+                            : 'Truecaller unavailable - use OTP',
+                        textAlign: TextAlign.center,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
       ),
     );
