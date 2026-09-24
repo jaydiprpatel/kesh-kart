@@ -9,18 +9,124 @@
       "client_info": {
         "mobilesdk_app_id": "1:30729698212:android:9b6e4f51986d665250df31",
         "android_client_info": {
-          "package_name": "com.example.kesh_kart"
+          "package_name": "com.keshkart.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "30729698212-m4tacocdjmjioerg28u8krunubeuinkk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.keshkart.app",
+            "certificate_hash": "e58048b7c3d09d16d0a755510bfc311eba052159"
+          }
+        },
+        {
+          "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBOPZSbb53R3bIvWEkuRXqa33yKxkrV5vE"
+        },
+        {
+          "current_key": "AIzaSyBXUqML9HiNBgTnWgDTKbAgSZ3UP4_SBwQ"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "30729698212-juroqlpbphqcmptia3od90q8psk0187o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.keshKart"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30729698212:android:295fd9303441a9ed50df31",
+        "android_client_info": {
+          "package_name": "com.keshkart.barber"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBOPZSbb53R3bIvWEkuRXqa33yKxkrV5vE"
+        },
+        {
+          "current_key": "AIzaSyBXUqML9HiNBgTnWgDTKbAgSZ3UP4_SBwQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "30729698212-juroqlpbphqcmptia3od90q8psk0187o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.keshKart"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30729698212:android:4d222e589142f4fe50df31",
+        "android_client_info": {
+          "package_name": "com.keshkart.com"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBOPZSbb53R3bIvWEkuRXqa33yKxkrV5vE"
+        },
+        {
+          "current_key": "AIzaSyBXUqML9HiNBgTnWgDTKbAgSZ3UP4_SBwQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "30729698212-iffsk0mv57ck0l7jvi3kjg4g4garndbn.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "30729698212-juroqlpbphqcmptia3od90q8psk0187o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.keshKart"
+              }
+            }
+          ]
         }
       }
     }

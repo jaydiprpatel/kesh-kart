@@ -54,8 +54,10 @@ class CheckInService {
             permission == LocationPermission.always) {
           try {
             Position position = await Geolocator.getCurrentPosition(
-              desiredAccuracy: LocationAccuracy.high,
-              timeLimit: const Duration(seconds: 5), // Don't block forever
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                timeLimit: Duration(seconds: 5),
+              ),
             );
             lat = position.latitude;
             lng = position.longitude;

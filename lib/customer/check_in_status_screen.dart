@@ -361,13 +361,19 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
         backgroundColor: const Color(0xFFF8F9FA),
         foregroundColor: const Color(0xFF091426),
         elevation: 0,
-        title: const Text('Live Queue Status', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Live Queue Status',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Icon(
               _isRealtimeConnected ? Icons.cloud_done : Icons.cloud_off,
-              color: _isRealtimeConnected ? const Color(0xFF00D084) : Colors.orange,
+              color:
+                  _isRealtimeConnected
+                      ? const Color(0xFF00D084)
+                      : Colors.orange,
             ),
           ),
         ],
@@ -380,7 +386,10 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
                   children: [
                     CircularProgressIndicator(color: Color(0xFF091426)),
                     SizedBox(height: 20),
-                    Text('Processing check-in...', style: TextStyle(color: Color(0xFF091426))),
+                    Text(
+                      'Processing check-in...',
+                      style: TextStyle(color: Color(0xFF091426)),
+                    ),
                   ],
                 )
                 : _isSuccess
@@ -428,7 +437,12 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
     }
 
     if (myIndex == -1) {
-      return const Center(child: Text('You are not in the queue.', style: TextStyle(color: Color(0xFF091426))));
+      return const Center(
+        child: Text(
+          'You are not in the queue.',
+          style: TextStyle(color: Color(0xFF091426)),
+        ),
+      );
     }
 
     final myPosition = myIndex + 1;
@@ -443,13 +457,17 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
           const SizedBox(height: 20),
           const Text(
             "You're in the Queue!",
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF091426)),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF091426),
+            ),
           ),
           const SizedBox(height: 40),
 
           Card(
             elevation: 8,
-            shadowColor: Colors.black.withOpacity(0.05),
+            shadowColor: Colors.black.withValues(alpha: 0.05),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
             ),
@@ -535,7 +553,7 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
+                color: Colors.orange.withValues(alpha: 0.1),
                 border: Border.all(color: Colors.orange),
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -564,7 +582,10 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
               ),
               minimumSize: const Size.fromHeight(50),
             ),
-            child: const Text('Back to Home', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Back to Home',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -581,7 +602,11 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
           const SizedBox(height: 20),
           const Text(
             'Check-in Failed',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF091426)),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF091426),
+            ),
           ),
           const SizedBox(height: 20),
           Text(
@@ -600,7 +625,10 @@ class _CheckInStatusScreenState extends State<CheckInStatusScreen> {
               ),
               minimumSize: const Size.fromHeight(50),
             ),
-            child: const Text('Go Back', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Go Back',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:kesh_kart/customer/select_slot.dart';
+import 'package:kesh_kart/customer/customer_barber_profile_page.dart';
 
 class CustomerBarberListPage extends StatelessWidget {
   final List<Map<String, dynamic>> barbers;
@@ -52,7 +52,7 @@ class CustomerBarberListPage extends StatelessWidget {
 
                   return InkWell(
                     borderRadius: BorderRadius.circular(18),
-                    onTap: () => _openBooking(context, barber),
+                    onTap: () => _openProfile(context, barber),
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -61,7 +61,7 @@ class CustomerBarberListPage extends StatelessWidget {
                         border: Border.all(color: const Color(0xFFE1E3E4)),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -139,7 +139,14 @@ class CustomerBarberListPage extends StatelessWidget {
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: _primary),
+                          IconButton(
+                            tooltip: 'View shop',
+                            onPressed: () => _openProfile(context, barber),
+                            icon: const Icon(
+                              Icons.storefront_outlined,
+                              color: _primary,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -149,10 +156,12 @@ class CustomerBarberListPage extends StatelessWidget {
     );
   }
 
-  void _openBooking(BuildContext context, Map<String, dynamic> barber) {
+  void _openProfile(BuildContext context, Map<String, dynamic> barber) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => SelectSlotScreen(barber: barber)),
+      MaterialPageRoute(
+        builder: (_) => CustomerBarberProfilePage(barber: barber),
+      ),
     );
   }
 
@@ -163,9 +172,17 @@ class CustomerBarberListPage extends StatelessWidget {
 
   static String? _firstPhoto(Map<String, dynamic> barber) {
     final photos = barber['shopPhotos'];
-    if (photos is List && photos.isNotEmpty && photos.first is String) {
-      final photo = photos.first.toString();
-      return photo.isEmpty ? null : photo;
+    final candidates = <dynamic>[
+      if (photos is List) ...photos,
+      barber['verifiedShopPhotoUrl'],
+      barber['shopVerificationPhotoUrl'],
+      barber['profileUrl'],
+    ];
+    for (final candidate in candidates) {
+      final photo = candidate?.toString().trim() ?? '';
+      if (photo.startsWith('http://') || photo.startsWith('https://')) {
+        return photo;
+      }
     }
     return null;
   }

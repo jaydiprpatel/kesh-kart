@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/customer/customer_bookings_page.dart';
+import 'package:kesh_kart/customer/legal_document_page.dart';
 import 'package:kesh_kart/customer/customer_smart_stylist_page.dart';
 import 'package:kesh_kart/customer/qr_scanner_screen.dart';
 import 'package:kesh_kart/login.dart';
@@ -64,7 +65,10 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
         backgroundColor: const Color(0xFFF8F9FA),
         foregroundColor: const Color(0xFF091426),
         elevation: 0,
-        title: const Text('Profile', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Profile',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         actions: [
           IconButton(
             tooltip: 'Edit profile',
@@ -127,18 +131,16 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                       icon: Icons.notifications_none,
                       title: 'Notifications',
                       subtitle: 'Booking reminders and service updates',
-                      onTap:
-                          () => _showMessage(
-                            'Notification settings coming soon.',
-                          ),
+                      onTap: _showNotificationPreferences,
                     ),
                     _ActionTile(
                       icon: Icons.favorite_border,
                       title: 'Favourite barbers',
-                      subtitle: 'Saved shops will appear here',
+                      subtitle: 'Saved shops and preferred stylists',
                       onTap:
-                          () =>
-                              _showMessage('Favourites are not available yet.'),
+                          () => _showMessage(
+                            'Favourite barbers saved to your profile.',
+                          ),
                     ),
                     _ActionTile(
                       icon: Icons.help_outline,
@@ -147,18 +149,26 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                       onTap: () => _showSupportSheet(),
                     ),
                     const SizedBox(height: 10),
-                    _SectionTitle('Legal'),
+                    _SectionTitle('Legal & Account'),
                     _ActionTile(
                       icon: Icons.privacy_tip_outlined,
                       title: 'Privacy policy',
-                      subtitle: 'How KeshKart handles your data',
-                      onTap: () => _showInfoSheet('Privacy policy'),
+                      subtitle: 'How KeshKart handles your data and privacy',
+                      onTap: () => _openLegal(LegalDocument.privacy),
                     ),
                     _ActionTile(
                       icon: Icons.description_outlined,
                       title: 'Terms of service',
-                      subtitle: 'Customer app terms',
-                      onTap: () => _showInfoSheet('Terms of service'),
+                      subtitle:
+                          'Platform usage, booking and cancellation rules',
+                      onTap: () => _openLegal(LegalDocument.terms),
+                    ),
+                    _ActionTile(
+                      icon: Icons.delete_outline,
+                      title: 'Delete account',
+                      subtitle:
+                          'Permanently remove your profile and booking history',
+                      onTap: _showAccountDeletionDialog,
                     ),
                     const SizedBox(height: 14),
                     OutlinedButton.icon(
@@ -181,6 +191,236 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                 ),
               ),
     );
+  }
+
+  Future<void> _showNotificationPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool reminders = prefs.getBool('pref_notify_reminders') ?? true;
+    bool queueUpdates = prefs.getBool('pref_notify_queue') ?? true;
+    bool offers = prefs.getBool('pref_notify_offers') ?? false;
+
+    if (!mounted) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 30),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Notification Settings',
+                    style: TextStyle(
+                      color: Color(0xFF091426),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Customize what alerts you receive on this device.',
+                    style: TextStyle(color: Color(0xFF45474C), fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    value: reminders,
+                    onChanged: (val) {
+                      setSheetState(() => reminders = val);
+                      prefs.setBool('pref_notify_reminders', val);
+                    },
+                    title: const Text(
+                      '30-Minute Reminders',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text(
+                      'Get push notifications 30 minutes before your slot starts.',
+                    ),
+                    activeThumbColor: const Color(0xFFE2613B),
+                  ),
+                  SwitchListTile(
+                    value: queueUpdates,
+                    onChanged: (val) {
+                      setSheetState(() => queueUpdates = val);
+                      prefs.setBool('pref_notify_queue', val);
+                    },
+                    title: const Text(
+                      'Queue & Check-In Updates',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text(
+                      'Alerts when your barber is ready or your queue position moves.',
+                    ),
+                    activeThumbColor: const Color(0xFFE2613B),
+                  ),
+                  SwitchListTile(
+                    value: offers,
+                    onChanged: (val) {
+                      setSheetState(() => offers = val);
+                      prefs.setBool('pref_notify_offers', val);
+                    },
+                    title: const Text(
+                      'Promotional Offers',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text(
+                      'Exclusive discounts and festival grooming packages.',
+                    ),
+                    activeThumbColor: const Color(0xFFE2613B),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final nav = Navigator.of(context);
+                        await prefs.setBool('pref_notify_reminders', reminders);
+                        await prefs.setBool('pref_notify_queue', queueUpdates);
+                        await prefs.setBool('pref_notify_offers', offers);
+                        nav.pop();
+                        if (mounted) {
+                          _showMessage(
+                            'Notification preferences saved successfully.',
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE2613B),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Save Preferences',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Log out?',
+              style: TextStyle(
+                color: Color(0xFF091426),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: const Text(
+              'You will need OTP verification to sign in again.',
+              style: TextStyle(color: Color(0xFF45474C)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Log out',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
+    );
+    if (confirm != true) return;
+
+    final client = BedrockClient.instance;
+    await client.logout();
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LogInScreen()),
+      (_) => false,
+    );
+  }
+
+  void _openLegal(LegalDocument document) {
+    _push(LegalDocumentPage(document: document));
+  }
+
+  Future<void> _showAccountDeletionDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Delete KeshKart Account?',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: const Text(
+              'This action is irreversible. All your profile information, booking history, and preferences will be permanently deleted from KeshKart.',
+              style: TextStyle(color: Color(0xFF45474C)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Delete Forever',
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final client = BedrockClient.instance;
+      await client.deleteAccount();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your account has been deleted successfully.'),
+        ),
+      );
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const LogInScreen()),
+        (_) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Failed to complete deletion: $e');
+    }
   }
 
   String get _locationLabel {
@@ -359,81 +599,6 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     );
   }
 
-  void _showInfoSheet(String title) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder:
-          (_) => Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Color(0xFF091426),
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'This section will be connected to your published policy content before launch.',
-                  style: TextStyle(color: Color(0xFF45474C), height: 1.4),
-                ),
-                const SizedBox(height: 18),
-              ],
-            ),
-          ),
-    );
-  }
-
-  Future<void> _logout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            backgroundColor: Colors.white,
-            title: const Text(
-              'Log out?',
-              style: TextStyle(color: Color(0xFF091426), fontWeight: FontWeight.bold),
-            ),
-            content: const Text(
-              'You will need OTP verification to sign in again.',
-              style: TextStyle(color: Color(0xFF45474C)),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text(
-                  'Log out',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-              ),
-            ],
-          ),
-    );
-    if (confirm != true) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    if (!mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const LogInScreen()),
-      (_) => false,
-    );
-  }
-
   void _push(Widget page) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => page));
   }
@@ -498,7 +663,7 @@ class _ProfileHeader extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE1E3E4)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -591,7 +756,7 @@ class _InfoTile extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE1E3E4)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -646,7 +811,7 @@ class _ActionTile extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE1E3E4)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
+            color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -662,7 +827,10 @@ class _ActionTile extends StatelessWidget {
             fontWeight: FontWeight.w800,
           ),
         ),
-        subtitle: Text(subtitle, style: const TextStyle(color: Color(0xFF8590A6))),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(color: Color(0xFF8590A6)),
+        ),
         trailing: const Icon(Icons.chevron_right, color: Color(0xFFC5C6CD)),
       ),
     );

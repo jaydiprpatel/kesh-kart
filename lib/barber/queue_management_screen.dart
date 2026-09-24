@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:kesh_kart/layout/keshkart_desktop_frame.dart';
 import 'package:intl/intl.dart';
 import '../bedrock_client.dart';
 import '../services/realtime_service.dart';
@@ -434,7 +435,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchQueue),
         ],
       ),
-      body: _buildBody(),
+      body: KeshKartDesktopFrame(maxWidth: 1050, child: _buildBody()),
     );
   }
 

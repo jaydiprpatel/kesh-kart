@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:kesh_kart/access/role_landing.dart';
 import 'package:glowy_borders/glowy_borders.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:kesh_kart/barber/home.dart';
-import 'package:kesh_kart/customer/home.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:http/http.dart' as http;
@@ -106,17 +106,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: const Text(
           'Just a moment...',
           style: TextStyle(
-            color: Colors.white,
+            color: Color(0xFF091426),
             fontFamily: 'Poppins',
             fontWeight: FontWeight.bold,
           ),
         ),
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFFF8F9FA),
         elevation: 0,
         automaticallyImplyLeading: false,
       ),
@@ -124,12 +124,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         builder: (context, constraints) {
           return SingleChildScrollView(
             child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-              ),
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
               child: IntrinsicHeight(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 30,
+                    vertical: 20,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -139,7 +140,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       AnimatedOpacity(
                         opacity: _iconOpacity,
                         duration: const Duration(milliseconds: 600),
-                        child: Image.asset('assets/images/SignUp.png', height: 200),
+                        child: Image.asset(
+                          'assets/images/SignUp.png',
+                          height: 200,
+                        ),
                       ),
 
                       const SizedBox(height: 10),
@@ -156,7 +160,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             style: TextStyle(
                               fontFamily: 'Poppins',
                               fontSize: 17,
-                              color: Colors.white70,
+                              color: Colors.black54,
                               fontStyle: FontStyle.italic,
                             ),
                             textAlign: TextAlign.center,
@@ -207,25 +211,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       autofillHints: autofillHints,
-      style: const TextStyle(color: Colors.white),
+      style: const TextStyle(color: Color(0xFF091426)),
       decoration: InputDecoration(
         filled: true,
-        fillColor: Colors.white10,
+        fillColor: Colors.white,
         hintText: hint,
-        hintStyle: const TextStyle(color: Colors.white38),
+        hintStyle: const TextStyle(color: Colors.black45),
         suffixIcon:
             toggleObscure != null
                 ? IconButton(
                   icon: Icon(
                     obscureText ? Icons.visibility_off : Icons.visibility,
-                    color: Colors.white54,
+                    color: Colors.black45,
                   ),
                   onPressed: toggleObscure,
                 )
                 : null,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF0A66C2), width: 1.4),
         ),
       ),
     );
@@ -249,13 +261,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildLocationPicker({String? emptyLabel}) {
     return _isFetchingLocation
         ? Shimmer.fromColors(
-          baseColor: Colors.grey.shade800,
-          highlightColor: Colors.grey.shade700,
+          baseColor: Colors.grey.shade200,
+          highlightColor: Colors.grey.shade100,
           child: Container(
             height: 55,
             width: double.infinity,
             decoration: BoxDecoration(
-              color: Colors.grey.shade800,
+              color: Colors.grey.shade200,
               borderRadius: BorderRadius.circular(10),
             ),
           ),
@@ -264,9 +276,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           onTap: () async {
             setState(() => _isFetchingLocation = true);
 
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Please wait...')));
+            if (mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('Please wait...')));
+            }
 
             LocationPermission permission = await Geolocator.checkPermission();
 
@@ -275,22 +289,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
               permission = await Geolocator.requestPermission();
               if (permission == LocationPermission.denied ||
                   permission == LocationPermission.deniedForever) {
-                setState(() => _isFetchingLocation = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Location permission is required to continue.',
+                if (mounted) {
+                  setState(() => _isFetchingLocation = false);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Location permission is required to continue.',
+                      ),
                     ),
-                  ),
-                );
+                  );
+                }
                 return;
               }
             }
 
             try {
               final position = await Geolocator.getCurrentPosition(
-                desiredAccuracy: LocationAccuracy.high,
+                locationSettings: const LocationSettings(
+                  accuracy: LocationAccuracy.high,
+                ),
               );
+
+              if (!mounted) return;
 
               setState(() {
                 _latitude = position.latitude;
@@ -304,27 +324,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               );
             } catch (e) {
-              setState(() => _isFetchingLocation = false);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to get location: $e')),
-              );
+              if (mounted) {
+                setState(() => _isFetchingLocation = false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to get location: $e')),
+                );
+              }
             }
           },
           child: Container(
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.white24),
+              color: Colors.white,
+              border: Border.all(color: Colors.grey.shade300),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               children: [
-                const Icon(Icons.location_on, color: Colors.white54),
+                const Icon(Icons.location_on, color: Color(0xFF0A66C2)),
                 const SizedBox(width: 10),
                 Text(
                   _latitude != null
                       ? 'Location: ($_latitude, $_longitude)'
                       : (emptyLabel ?? 'Tap to pick location'),
-                  style: const TextStyle(color: Colors.white70),
+                  style: const TextStyle(color: Colors.black54),
                 ),
               ],
             ),
@@ -338,7 +361,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       children: [
         const Text(
           'Upload shop photos (max 5):',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: Colors.black54),
         ),
         const SizedBox(height: 10),
         SizedBox(
@@ -384,10 +407,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     width: 100,
                     height: 100,
                     decoration: BoxDecoration(
-                      color: Colors.white10,
+                      color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.add_a_photo, color: Colors.white54),
+                    child: const Icon(
+                      Icons.add_a_photo,
+                      color: Color(0xFF0A66C2),
+                    ),
                   ),
                 );
               }
@@ -404,13 +430,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return Padding(
           padding: const EdgeInsets.only(bottom: 20),
           child: Shimmer.fromColors(
-            baseColor: Colors.grey.shade900,
-            highlightColor: Colors.grey.shade800,
+            baseColor: Colors.grey.shade200,
+            highlightColor: Colors.grey.shade100,
             child: Container(
               height: 50,
               width: double.infinity,
               decoration: BoxDecoration(
-                color: Colors.grey.shade900,
+                color: Colors.grey.shade200,
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
@@ -440,7 +466,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               width: 60,
               height: 60,
               decoration: const BoxDecoration(
-                color: Colors.black,
+                color: Color(0xFF091426),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -512,17 +538,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (existingUsers.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Email already exists. Please use a different email ID.',
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Email already exists. Please use a different email ID.',
+              ),
             ),
-          ),
-        );
+          );
+        }
         return; // Stop submission
       }
     }
 
+    if (!mounted) return;
     setState(() => _isSubmitting = true);
 
     ScaffoldMessenger.of(
@@ -577,16 +606,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final downloadUrl = await BedrockClient().uploadFile(file, storagePath);
 
       if (downloadUrl == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Failed to upload shop photo to Bedrock."),
-          ),
-        );
-        setState(() => _isSubmitting = false);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Failed to upload shop photo to Bedrock."),
+            ),
+          );
+          setState(() => _isSubmitting = false);
+        }
         return;
       }
 
-      uploadedUrls.add(downloadUrl);
+      // The upload response URL is deliberately signed and temporary. Keep
+      // the durable path in the profile so it can be re-signed later.
+      uploadedUrls.add(storagePath);
       debugPrint(
         '[KeshKartUpload] register upload saved count=${uploadedUrls.length}',
       );
@@ -619,10 +652,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (result == null) {
       // If update fails (might be because doc doesn't exist yet), try create or handle error
       debugPrint("Bedrock Save Failed. Check your rules and API connectivity.");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to save profile to Bedrock.")),
-      );
-      setState(() => _isSubmitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to save profile to Bedrock.")),
+        );
+        setState(() => _isSubmitting = false);
+      }
       return;
     }
 
@@ -650,17 +685,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
     await prefs.setBool('isActive', true);
     await prefs.setString('userType', role);
     await prefs.setBool('isLoggedIn', true);
-    await NotificationService.requestPermissionAndSyncToken();
+    if (role == 'barber' && !kIsWeb) {
+      await NotificationService.requestPermissionAndSyncToken();
+    }
 
-    if (role == 'barber') {
+    if (!mounted) return;
+
+    if (!kIsWeb || role == 'barber') {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const BarberHome()),
+        MaterialPageRoute(builder: (_) => RoleLanding.barber()),
       );
     } else {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const CustomerHome()),
+        MaterialPageRoute(builder: (_) => RoleLanding.customer()),
       );
     }
   }
@@ -786,8 +825,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Widget _buildBarberFormShimmer() {
     return Shimmer.fromColors(
-      baseColor: Colors.grey.shade900,
-      highlightColor: Colors.grey.shade800,
+      baseColor: Colors.grey.shade200,
+      highlightColor: Colors.grey.shade100,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -796,7 +835,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               height: 50,
               margin: const EdgeInsets.only(bottom: 20),
               decoration: BoxDecoration(
-                color: Colors.grey.shade900,
+                color: Colors.grey.shade200,
                 borderRadius: BorderRadius.circular(10),
               ),
             );
@@ -808,7 +847,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   height: 50,
                   margin: const EdgeInsets.only(bottom: 20, right: 10),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade900,
+                    color: Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -818,7 +857,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   height: 50,
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade900,
+                    color: Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -830,7 +869,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 20),
             decoration: BoxDecoration(
-              color: Colors.grey.shade900,
+              color: Colors.grey.shade200,
               borderRadius: BorderRadius.circular(10),
             ),
           ),
@@ -845,7 +884,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   width: 100,
                   height: 100,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade900,
+                    color: Colors.grey.shade200,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 );
@@ -862,6 +901,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final url = Uri.parse('https://api.postalpincode.in/pincode/$pincode');
       final response = await http.get(url);
 
+      if (!mounted) return;
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data[0]['Status'] == 'Success') {
@@ -877,9 +918,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error fetching address: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error fetching address: $e')));
+      }
     }
   }
 

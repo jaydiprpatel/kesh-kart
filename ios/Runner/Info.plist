@@ -45,5 +45,18 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Kesh Kart uses the camera to detect your face shape for Smart Stylist suggestions.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Kesh Kart uses your location to discover nearby barber shops and calculate distance.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Kesh Kart uses your location to alert you when you arrive at your booked appointment.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Kesh Kart requires access to your photo library to upload shop verification and style photos.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

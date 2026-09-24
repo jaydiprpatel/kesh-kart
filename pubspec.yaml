@@ -24,6 +24,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   firebase_core: ^3.12.1
   firebase_messaging: ^15.2.4
+  firebase_crashlytics: ^4.3.5
+  flutter_local_notifications: ^18.0.1
   shimmer: ^3.0.0
   font_awesome_flutter: ^10.8.0
   glowy_borders: ^1.0.2
@@ -34,6 +36,8 @@ dependencies:
   web_socket_channel: ^3.0.2
   geolocator: ^13.0.4
   image_picker: ^1.1.2
+  camera: ^0.11.0+2
+  google_mlkit_face_detection: ^0.13.1
   path: ^1.9.1
   path_provider: ^2.1.5
   permission_handler: ^12.0.0+1
@@ -41,7 +45,13 @@ dependencies:
   flutter_launcher_icons: ^0.14.3
   mobile_scanner: ^5.2.3
   intl: ^0.19.0
+  qr_flutter: ^4.1.0
   truecaller_sdk: ^1.2.0
+  url_launcher: ^6.3.1
+  # Official Razorpay wrapper for Android/iOS Standard Checkout. The key ID and
+  # server-created order are supplied at checkout time; no secret is bundled.
+  razorpay_flutter: 1.4.0
+
 
 flutter_launcher_icons:
   android: "launcher_icon"

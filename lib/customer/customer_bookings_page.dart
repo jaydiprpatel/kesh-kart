@@ -1,236 +1,275 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:kesh_kart/bedrock_client.dart';
-import 'package:kesh_kart/customer/qr_scanner_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../bedrock_client.dart';
+import '../theme/keshkart_theme.dart';
+import 'booking_receipt_page.dart';
+import 'discovery_view.dart' show appointmentMillis;
 
 class CustomerBookingsPage extends StatefulWidget {
-  const CustomerBookingsPage({super.key});
-
+  const CustomerBookingsPage({super.key, this.loader});
+  final Future<List<dynamic>> Function()? loader;
   @override
   State<CustomerBookingsPage> createState() => _CustomerBookingsPageState();
 }
 
 class _CustomerBookingsPageState extends State<CustomerBookingsPage> {
-  static const Color _primary = Color(0xFF091426);
-  static const Color _green = Color(0xFF00D084);
-
-  bool _loading = true;
+  bool _loading = true, _history = false;
+  String? _error;
   List<Map<String, dynamic>> _appointments = [];
-
   @override
   void initState() {
     super.initState();
-    _loadBookings();
+    _load();
   }
 
-  Future<void> _loadBookings() async {
-    setState(() => _loading = true);
-    final prefs = await SharedPreferences.getInstance();
-    final userId =
-        prefs.getString('bedrock_user_id') ?? prefs.getString('userId');
-    if (userId == null || userId.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _appointments = [];
-        _loading = false;
-      });
-      return;
-    }
-
-    final rows = await BedrockClient().queryCollection(
-      'appointments',
-      params: {'customerId': userId},
-    );
-    final appointments =
-        rows.map(_normalize).where((row) => row.isNotEmpty).toList();
-    appointments.sort((a, b) {
-      final aStart = _millis(a['slotStart']);
-      final bStart = _millis(b['slotStart']);
-      return bStart.compareTo(aStart);
-    });
-
-    if (!mounted) return;
+  Future<void> _load() async {
     setState(() {
-      _appointments = appointments;
-      _loading = false;
+      _loading = true;
+      _error = null;
     });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user =
+          prefs.getString('bedrock_user_id') ?? prefs.getString('userId');
+      if (widget.loader == null && (user == null || user.isEmpty)) {
+        throw StateError('Sign in to see your appointments.');
+      }
+      final rows =
+          await (widget.loader?.call() ??
+              BedrockClient().queryCollection(
+                'appointments',
+                params: {'customerId': user!},
+                throwOnError: true,
+              ));
+      final parsed =
+          rows
+              .whereType<Map>()
+              .map(
+                (r) => <String, dynamic>{
+                  ...Map<String, dynamic>.from(
+                    r['data'] is Map ? r['data'] : r,
+                  ),
+                  if (r['id'] != null) 'id': r['id'],
+                },
+              )
+              .toList();
+      if (mounted) {
+        setState(() {
+          _appointments = parsed;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'We could not load your appointments. Please retry.';
+        });
+      }
+    }
   }
 
+  bool _isUpcoming(Map<String, dynamic> row) =>
+      [
+        'booked',
+        'scheduled',
+        'confirmed',
+        'arrived',
+        'in_progress',
+      ].contains(row['status']) &&
+      appointmentMillis(row['slotStart']) >=
+          DateTime.now().millisecondsSinceEpoch;
   @override
   Widget build(BuildContext context) {
+    final rows =
+        _appointments.where((r) => _history != _isUpcoming(r)).toList()..sort(
+          (a, b) =>
+              _history
+                  ? appointmentMillis(
+                    b['slotStart'],
+                  ).compareTo(appointmentMillis(a['slotStart']))
+                  : appointmentMillis(
+                    a['slotStart'],
+                  ).compareTo(appointmentMillis(b['slotStart'])),
+        );
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: KeshColors.warmIvory,
       appBar: AppBar(
-        backgroundColor: const Color(0xFFF8F9FA),
-        foregroundColor: _primary,
-        elevation: 0,
-        title: const Text(
-          'Bookings',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Your appointments'),
         actions: [
           IconButton(
-            tooltip: 'Scan QR',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const QrScannerScreen()),
-              );
-            },
-            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'Refresh appointments',
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
-      body:
-          _loading
-              ? const Center(child: CircularProgressIndicator(color: _primary))
-              : RefreshIndicator(
-                onRefresh: _loadBookings,
-                color: _primary,
-                backgroundColor: Colors.white,
-                child:
-                    _appointments.isEmpty
-                        ? ListView(
-                          padding: const EdgeInsets.all(24),
-                          children: const [
-                            SizedBox(height: 160),
-                            Icon(
-                              Icons.calendar_month,
-                              color: Color(0xFFC5C6CD),
-                              size: 64,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(24),
+                children: [
+                  const Text(
+                    'A little time,\njust for you.',
+                    style: TextStyle(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Keep track of your next visit. Revisit your favourites.',
+                  ),
+                  const SizedBox(height: 24),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: false,
+                        icon: Icon(Icons.event_outlined),
+                        label: Text('Upcoming'),
+                      ),
+                      ButtonSegment(
+                        value: true,
+                        icon: Icon(Icons.history),
+                        label: Text('History'),
+                      ),
+                    ],
+                    selected: {_history},
+                    onSelectionChanged:
+                        (s) => setState(() => _history = s.first),
+                  ),
+                  const SizedBox(height: 24),
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.all(40),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_error != null)
+                    Column(
+                      children: [
+                        Text(_error!),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Try again'),
+                        ),
+                      ],
+                    )
+                  else ...[
+                    if (_appointments.length >= 100)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 16),
+                        child: Text('Showing up to 100 loaded appointments.'),
+                      ),
+                    if (rows.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 50),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.event_available_outlined,
+                              size: 48,
+                              color: KeshColors.signatureCoral,
                             ),
-                            SizedBox(height: 16),
+                            const SizedBox(height: 16),
                             Text(
-                              'No bookings yet',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: _primary,
+                              _history
+                                  ? 'Your visit history starts here'
+                                  : 'Your next visit is waiting',
+                              style: const TextStyle(
                                 fontSize: 22,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Book a barber from Home and your appointments will appear here.',
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Find your barber on Discover and choose a time.',
                               textAlign: TextAlign.center,
-                              style: TextStyle(color: Color(0xFF45474C)),
                             ),
                           ],
-                        )
-                        : ListView.separated(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _appointments.length,
-                          separatorBuilder:
-                              (_, __) => const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final item = _appointments[index];
-                            final date = DateTime.fromMillisecondsSinceEpoch(
-                              _millis(item['slotStart']),
-                            );
-                            final reason = _text(
-                              item['cancelReason'] ?? item['rescheduleReason'],
-                            );
-                            return Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: const Color(0xFFE1E3E4),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.02),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.calendar_today,
-                                    color: _primary,
-                                    size: 30,
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _text(
-                                            item['shopName'],
-                                            fallback: 'KeshKart booking',
-                                          ),
-                                          style: const TextStyle(
-                                            color: _primary,
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 16,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 5),
-                                        Text(
-                                          DateFormat(
-                                            'EEE, d MMM • h:mm a',
-                                          ).format(date),
-                                          style: const TextStyle(
-                                            color: Color(0xFF8590A6),
-                                          ),
-                                        ),
-                                        if (reason.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            reason,
-                                            style: const TextStyle(
-                                              color: Color(0xFF54647A),
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  Text(
-                                    _text(
-                                      item['status'],
-                                      fallback: 'booked',
-                                    ).toUpperCase(),
-                                    style: const TextStyle(
-                                      color: _green,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
                         ),
+                      ),
+                    for (final r in rows) _card(r),
+                  ],
+                ],
               ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  static Map<String, dynamic> _normalize(dynamic row) {
-    if (row is! Map) return {};
-    final data = row['data'];
-    if (data is Map) {
-      return {...Map<String, dynamic>.from(data), 'id': row['id']};
-    }
-    return Map<String, dynamic>.from(row);
-  }
-
-  static int _millis(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return DateTime.tryParse(value?.toString() ?? '')?.millisecondsSinceEpoch ??
-        0;
-  }
-
-  static String _text(dynamic value, {String fallback = ''}) {
-    final text = value?.toString().trim() ?? '';
-    return text.isEmpty ? fallback : text;
+  Widget _card(Map<String, dynamic> row) {
+    final time = appointmentMillis(row['slotStart']);
+    final date = time > 0 ? DateTime.fromMillisecondsSinceEpoch(time) : null;
+    final status = '${row['status'] ?? 'Unknown'}'.replaceAll('_', ' ');
+    final reason = '${row['cancelReason'] ?? row['rescheduleReason'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: KeshColors.borderIvory),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              Chip(label: Text(status)),
+              Chip(
+                label: Text(
+                  date == null
+                      ? 'Date unavailable'
+                      : DateFormat('EEE, d MMM').format(date),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${row['shopName'] ?? row['barberName'] ?? 'Barber shop'}',
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            date == null
+                ? 'Check your receipt for details'
+                : DateFormat('h:mm a · d MMMM y').format(date),
+            style: const TextStyle(color: KeshColors.textSecondary),
+          ),
+          if (reason.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(reason),
+            ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Navigator.push<void>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BookingReceiptPage(appointment: row),
+                ),
+              );
+              if (mounted) _load();
+            },
+            icon: const Icon(Icons.qr_code_2),
+            label: const Text('Appointment details & receipt'),
+          ),
+        ],
+      ),
+    );
   }
 }

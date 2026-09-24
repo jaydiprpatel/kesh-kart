@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -9,12 +12,36 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+}
+
+fun signingValue(propertyName: String, environmentName: String): String? =
+    keystoreProperties.getProperty(propertyName)?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv(environmentName)?.trim()?.takeIf { it.isNotEmpty() }
+
+val releaseKeyAlias = signingValue("keyAlias", "KEY_ALIAS")
+val releaseKeyPassword = signingValue("keyPassword", "KEY_PASSWORD")
+val releaseStorePassword = signingValue("storePassword", "STORE_PASSWORD")
+val releaseStoreFile = signingValue("storeFile", "STORE_FILE")?.let { rootProject.file(it) }
+val releaseSigningConfigured =
+    !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank() &&
+        !releaseStorePassword.isNullOrBlank() &&
+        releaseStoreFile?.isFile == true
+val releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
 android {
-    namespace = "com.example.kesh_kart"
-    compileSdk = flutter.compileSdkVersion
+    namespace = "com.keshkart.barber"
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -24,26 +51,48 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.kesh_kart"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "com.keshkart.barber"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
-    buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+    signingConfigs {
+        create("release") {
+            if (releaseSigningConfigured) {
+                storeFile = requireNotNull(releaseStoreFile)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+                storePassword = requireNotNull(releaseStorePassword)
+            }
         }
     }
-    ndkVersion = "27.0.12077973"
+
+    buildTypes {
+        release {
+            val releaseConfig = signingConfigs.getByName("release")
+            if (releaseBuildRequested && !releaseSigningConfigured) {
+                throw GradleException(
+                    "Release signing is not configured. Create android/key.properties from android/key.properties.example or provide KEY_* environment variables.",
+                )
+            }
+            signingConfig = if (releaseSigningConfigured) releaseConfig else signingConfigs.getByName("debug")
+        }
+    }
+    ndkVersion = "28.2.13676358"
 }
 
 flutter {
     source = "../.."
+}
+
+configurations.all {
+    resolutionStrategy {
+        force("com.google.mlkit:barcode-scanning:17.3.0")
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

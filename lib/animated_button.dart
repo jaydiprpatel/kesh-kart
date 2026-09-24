@@ -12,7 +12,7 @@ class AnimatedGradientButton extends StatefulWidget {
   });
 
   @override
-  _AnimatedGradientButtonState createState() =>
+  State<AnimatedGradientButton> createState() =>
       _AnimatedGradientButtonState();
 }
 

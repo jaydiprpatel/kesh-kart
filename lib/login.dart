@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:kesh_kart/access/web_portal.dart';
+import 'package:kesh_kart/access/role_landing.dart';
 import 'package:glowy_borders/glowy_borders.dart';
-import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
-import 'package:kesh_kart/customer/home.dart';
 import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/otp_screen.dart';
 import 'package:kesh_kart/services/notification_service.dart';
@@ -23,7 +25,14 @@ class _LogInScreenState extends State<LogInScreen> {
   bool isSignUp = false;
   double _taglineOpacity = 0.0;
   TextEditingController phoneNumberController = TextEditingController();
+  final TextEditingController _reviewerPhoneController =
+      TextEditingController();
+  final TextEditingController _reviewerPasswordController =
+      TextEditingController();
   bool isLoading = false;
+  bool _isReviewerLoginLoading = false;
+  bool _showReviewerLogin = false;
+  bool _obscureReviewerPassword = true;
   bool _isTruecallerLoading = false;
   bool _isTruecallerUsable = false;
   final TruecallerLoginService _truecallerLoginService =
@@ -33,7 +42,8 @@ class _LogInScreenState extends State<LogInScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeTruecaller();
+    // Truecaller is intentionally paused. Phone OTP is the only active
+    // customer sign-in method until this integration is revisited.
     Future.delayed(const Duration(milliseconds: 900), () {
       if (!mounted) return;
       setState(() {
@@ -42,6 +52,7 @@ class _LogInScreenState extends State<LogInScreen> {
     });
   }
 
+  // ignore: unused_element
   Future<void> _initializeTruecaller() async {
     debugPrint('[Truecaller UI Diagnostic] Initializing Truecaller state...');
     final usable = await _truecallerLoginService.isUsable;
@@ -115,7 +126,7 @@ class _LogInScreenState extends State<LogInScreen> {
       debugPrint(
         '[Truecaller UI Diagnostic] Backend auth succeeded. Finalizing login...',
       );
-      await _finishTruecallerLogin(response);
+      await _finishAuthenticatedLogin(response);
     } catch (e, stackTrace) {
       debugPrint(
         '[Truecaller UI Diagnostic] Unhandled error during Truecaller login flow: $e',
@@ -129,7 +140,7 @@ class _LogInScreenState extends State<LogInScreen> {
     }
   }
 
-  Future<void> _finishTruecallerLogin(Map<String, dynamic> response) async {
+  Future<void> _finishAuthenticatedLogin(Map<String, dynamic> response) async {
     final userId = response['user_id']?.toString() ?? '';
     final userType = (response['user_type']?.toString() ?? '').toLowerCase();
     final phone = response['phone']?.toString() ?? '';
@@ -157,14 +168,54 @@ class _LogInScreenState extends State<LogInScreen> {
     }
 
     await _storeProfile(userId, userType, userData);
-    await NotificationService.requestPermissionAndSyncToken();
+    if (userType == 'barber' && !kIsWeb) {
+      await NotificationService.requestPermissionAndSyncToken();
+    }
     if (!mounted) return;
     if (userType == 'barber') {
-      Navigator.pushReplacement(context, slideUpRoute(const BarberHome()));
+      Navigator.pushReplacement(context, slideUpRoute(RoleLanding.barber()));
     } else if (userType == 'customer') {
-      Navigator.pushReplacement(context, slideUpRoute(const CustomerHome()));
+      // Android is intentionally barber-only. Customer accounts never enter
+      // customer discovery or booking screens from this binary.
+      Navigator.pushReplacement(context, slideUpRoute(RoleLanding.customer()));
     } else {
       _goToSignupChoice(userId, phone);
+    }
+  }
+
+  Future<void> _handleReviewerLogin() async {
+    if (_isReviewerLoginLoading || isLoading) return;
+
+    // Reviewer credentials are commonly pasted from a verification form.
+    // Remove whitespace and phone separators before sending the request.
+    final phone = _reviewerPhoneController.text.replaceAll(
+      RegExp(r'[^0-9]'),
+      '',
+    );
+    final password = _reviewerPasswordController.text.trim();
+    if (phone.isEmpty || password.isEmpty) {
+      _showMessage('Enter the reviewer mobile number and password.');
+      return;
+    }
+    if (phone.length != 10) {
+      _showMessage('Enter the 10-digit reviewer mobile number.');
+      return;
+    }
+
+    setState(() => _isReviewerLoginLoading = true);
+    try {
+      final response = await BedrockClient().loginAsRazorpayReviewer(
+        phone: phone,
+        password: password,
+      );
+      if (!mounted) return;
+      if (response == null || response['success'] != true) {
+        _showMessage('Reviewer sign-in could not be completed.');
+        return;
+      }
+      await _finishAuthenticatedLogin(response);
+    } finally {
+      if (mounted) setState(() => _isReviewerLoginLoading = false);
     }
   }
 
@@ -213,22 +264,24 @@ class _LogInScreenState extends State<LogInScreen> {
   void dispose() {
     _truecallerLoginService.dispose();
     phoneNumberController.dispose();
+    _reviewerPhoneController.dispose();
+    _reviewerPasswordController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFFF8F9FA),
         elevation: 0,
         centerTitle: false,
         automaticallyImplyLeading: false,
         title: const Text(
           'Welcome to Kesh Kart',
           style: TextStyle(
-            color: Colors.white,
+            color: Color(0xFF091426),
             fontFamily: 'Poppins',
             fontWeight: FontWeight.bold,
             fontSize: 30,
@@ -241,7 +294,14 @@ class _LogInScreenState extends State<LogInScreen> {
             physics: const BouncingScrollPhysics(),
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(child: Center(child: loginBlock())),
+              child: IntrinsicHeight(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: loginBlock(),
+                  ),
+                ),
+              ),
             ),
           );
         },
@@ -249,6 +309,27 @@ class _LogInScreenState extends State<LogInScreen> {
     );
   }
 
+  // ignore: unused_element
+  Widget _buildAuthDivider() {
+    return Row(
+      children: [
+        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'or',
+            style: TextStyle(
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
+      ],
+    );
+  }
+
+  // ignore: unused_element
   Widget _buildTruecallerButton() {
     return SizedBox(
       width: double.infinity,
@@ -261,7 +342,7 @@ class _LogInScreenState extends State<LogInScreen> {
         style: OutlinedButton.styleFrom(
           backgroundColor: const Color(0xFF0A66C2),
           foregroundColor: Colors.white,
-          disabledForegroundColor: Colors.white38,
+          disabledForegroundColor: Colors.white54,
           side: BorderSide.none,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -281,11 +362,13 @@ class _LogInScreenState extends State<LogInScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Image.asset(
-                      'assets/images/truecaller_logo.png',
-                      width: 24,
-                      height: 24,
-                      fit: BoxFit.contain,
+                    ClipOval(
+                      child: Image.asset(
+                        'assets/images/truecaller_logo.png',
+                        width: 30,
+                        height: 30,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Flexible(
@@ -327,7 +410,7 @@ class _LogInScreenState extends State<LogInScreen> {
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 17,
-                    color: Colors.white70,
+                    color: Colors.black54,
                     fontStyle: FontStyle.italic,
                   ),
                   textAlign: TextAlign.center,
@@ -340,12 +423,12 @@ class _LogInScreenState extends State<LogInScreen> {
             // Username Input
             isLoading
                 ? Shimmer.fromColors(
-                  baseColor: Colors.grey.shade800,
-                  highlightColor: Colors.grey.shade700,
+                  baseColor: Colors.grey.shade200,
+                  highlightColor: Colors.grey.shade100,
                   child: Container(
                     height: 60,
                     decoration: BoxDecoration(
-                      color: Colors.grey,
+                      color: Colors.grey.shade200,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     margin: const EdgeInsets.symmetric(vertical: 8),
@@ -355,6 +438,7 @@ class _LogInScreenState extends State<LogInScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade300),
                   ),
                   child: Center(
                     child: TextField(
@@ -384,11 +468,23 @@ class _LogInScreenState extends State<LogInScreen> {
                   ),
                 ),
 
-            if (_isTruecallerUsable) ...[
-              const SizedBox(height: 18),
-              _buildTruecallerButton(),
+            if (kIsWeb && KeshKartWebPortal.isBarber) ...[
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed:
+                    _isReviewerLoginLoading
+                        ? null
+                        : () => setState(
+                          () => _showReviewerLogin = !_showReviewerLogin,
+                        ),
+                icon: const Icon(Icons.verified_user_outlined),
+                label: const Text('Razorpay reviewer sign in'),
+              ),
+              if (_showReviewerLogin) ...[
+                const SizedBox(height: 8),
+                _buildReviewerLoginPanel(),
+              ],
             ],
-
             const SizedBox(height: 35),
 
             // Login Button
@@ -504,7 +600,7 @@ class _LogInScreenState extends State<LogInScreen> {
                     width: 60,
                     height: 60,
                     decoration: const BoxDecoration(
-                      color: Colors.grey, // grey background
+                      color: Color(0xFF091426),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -520,6 +616,82 @@ class _LogInScreenState extends State<LogInScreen> {
             const Spacer(flex: 1),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildReviewerLoginPanel() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF091426).withValues(alpha: .16),
+        ),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'Razorpay verification access',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Use the dedicated test mobile number and password supplied for review.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black54, fontSize: 13),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _reviewerPhoneController,
+            keyboardType: TextInputType.phone,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            maxLength: 10,
+            decoration: const InputDecoration(
+              labelText: 'Test mobile number',
+              border: OutlineInputBorder(),
+              counterText: '',
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _reviewerPasswordController,
+            obscureText: _obscureReviewerPassword,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                onPressed:
+                    () => setState(
+                      () =>
+                          _obscureReviewerPassword = !_obscureReviewerPassword,
+                    ),
+                icon: Icon(
+                  _obscureReviewerPassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+              ),
+            ),
+            onSubmitted: (_) => _handleReviewerLogin(),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _isReviewerLoginLoading ? null : _handleReviewerLogin,
+              child:
+                  _isReviewerLoginLoading
+                      ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Text('Open reviewer account'),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,14 +2,15 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:kesh_kart/layout/keshkart_desktop_frame.dart';
 import 'package:flutter/services.dart';
+import 'package:kesh_kart/access/role_landing.dart';
 import 'package:glowy_borders/glowy_borders.dart';
-import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/commons.dart';
-import 'package:kesh_kart/customer/home.dart';
 import 'package:kesh_kart/services/notification_service.dart';
 import 'package:pin_code_fields/pin_code_fields.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -175,14 +176,21 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
       }
 
       await _storeProfile(bedrockUserId, userType, userData);
-      await NotificationService.requestPermissionAndSyncToken();
+      if (userType == 'barber' && !kIsWeb) {
+        await NotificationService.requestPermissionAndSyncToken();
+      }
 
       if (!mounted) return;
 
       if (userType == 'barber') {
-        Navigator.pushReplacement(context, slideUpRoute(const BarberHome()));
+        Navigator.pushReplacement(context, slideUpRoute(RoleLanding.barber()));
       } else if (userType == 'customer') {
-        Navigator.pushReplacement(context, slideUpRoute(const CustomerHome()));
+        // Android is intentionally barber-only. Customer accounts are handed
+        // off to keshkart.com rather than loading customer functionality.
+        Navigator.pushReplacement(
+          context,
+          slideUpRoute(RoleLanding.customer()),
+        );
       } else {
         _goToRegistration(bedrockUserId);
       }
@@ -312,14 +320,14 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
       context: context,
       builder:
           (context) => AlertDialog(
-            backgroundColor: Colors.grey[900],
+            backgroundColor: Colors.white,
             title: const Text(
               'Last OTP request',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(color: Color(0xFF091426)),
             ),
             content: const Text(
               'This is your last OTP request. If you do not verify with this OTP, you will need to wait 4 hours before requesting another code.',
-              style: TextStyle(color: Colors.white70),
+              style: TextStyle(color: Color(0xFF45474C)),
             ),
             actions: [
               TextButton(
@@ -358,15 +366,15 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: const Color(0xFFF8F9FA),
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
           'Verify OTP',
           style: TextStyle(
-            color: Colors.white,
+            color: Color(0xFF091426),
             fontFamily: 'Poppins',
             fontWeight: FontWeight.bold,
           ),
@@ -374,87 +382,93 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight,
-              ),
-              child: IntrinsicHeight(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const Spacer(flex: 2),
-                      AnimatedOpacity(
-                        opacity: _iconOpacity,
-                        duration: const Duration(milliseconds: 600),
-                        child: Image.asset('assets/images/otp.png', height: 200),
-                      ),
-                      const SizedBox(height: 20),
-                      AnimatedOpacity(
-                        opacity: _textOpacity,
-                        duration: const Duration(milliseconds: 600),
-                        child: Text(
-                          'Enter the OTP sent to\n${widget.phoneNumber}',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontFamily: 'Poppins',
-                            color: Colors.white70,
-                            fontSize: 16,
+          return KeshKartDesktopFrame(
+            maxWidth: 560,
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const Spacer(flex: 2),
+                        AnimatedOpacity(
+                          opacity: _iconOpacity,
+                          duration: const Duration(milliseconds: 600),
+                          child: Image.asset(
+                            'assets/images/otp.png',
+                            height: 200,
                           ),
                         ),
-                      ),
-                      const Spacer(flex: 3),
-                      buildOtpLoginUI(),
-                      const SizedBox(height: 35),
-                      Center(
-                        child: AnimatedGradientBorder(
-                          borderSize: 2,
-                          glowSize: 10,
-                          gradientColors: [
-                            Colors.transparent,
-                            Colors.transparent,
-                            Colors.transparent,
-                            Colors.purple.shade50,
-                          ],
-                          borderRadius: const BorderRadius.all(Radius.circular(999)),
-                          child: InkWell(
-                            onTap:
-                                _isVerifying
-                                    ? null
-                                    : () => _verifyOtp(showLengthError: true),
-                            child: Opacity(
-                              opacity: _isVerifying ? 0.6 : 1,
-                              child: Container(
-                                width: 60,
-                                height: 60,
-                                decoration: const BoxDecoration(
-                                  color: Colors.black,
-                                  shape: BoxShape.circle,
-                                ),
-                                child:
-                                    _isVerifying
-                                        ? const Padding(
-                                          padding: EdgeInsets.all(18),
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
+                        const SizedBox(height: 20),
+                        AnimatedOpacity(
+                          opacity: _textOpacity,
+                          duration: const Duration(milliseconds: 600),
+                          child: Text(
+                            'Enter the OTP sent to\n${widget.phoneNumber}',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontFamily: 'Poppins',
+                              color: Colors.black54,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        const Spacer(flex: 3),
+                        buildOtpLoginUI(),
+                        const SizedBox(height: 35),
+                        Center(
+                          child: AnimatedGradientBorder(
+                            borderSize: 2,
+                            glowSize: 10,
+                            gradientColors: [
+                              Colors.transparent,
+                              Colors.transparent,
+                              Colors.transparent,
+                              Colors.purple.shade50,
+                            ],
+                            borderRadius: const BorderRadius.all(
+                              Radius.circular(999),
+                            ),
+                            child: InkWell(
+                              onTap:
+                                  _isVerifying
+                                      ? null
+                                      : () => _verifyOtp(showLengthError: true),
+                              child: Opacity(
+                                opacity: _isVerifying ? 0.6 : 1,
+                                child: Container(
+                                  width: 60,
+                                  height: 60,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF091426),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child:
+                                      _isVerifying
+                                          ? const Padding(
+                                            padding: EdgeInsets.all(18),
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: Colors.white,
+                                            ),
+                                          )
+                                          : const Icon(
+                                            CupertinoIcons.arrow_right,
                                             color: Colors.white,
+                                            size: 30,
                                           ),
-                                        )
-                                        : const Icon(
-                                          CupertinoIcons.arrow_right,
-                                          color: Colors.white,
-                                          size: 30,
-                                        ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      const Spacer(flex: 1),
-                    ],
+                        const Spacer(flex: 1),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -481,17 +495,17 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
             autoDismissKeyboard: true,
             enablePinAutofill: true,
             animationType: AnimationType.fade,
-            textStyle: const TextStyle(color: Colors.white, fontSize: 20),
+            textStyle: const TextStyle(color: Color(0xFF091426), fontSize: 20),
             pinTheme: PinTheme(
               shape: PinCodeFieldShape.box,
               borderRadius: BorderRadius.circular(10),
               fieldHeight: 50,
               fieldWidth: 40,
-              activeColor: Colors.white,
-              selectedColor: Colors.purpleAccent,
-              inactiveColor: Colors.white38,
+              activeColor: const Color(0xFF091426),
+              selectedColor: const Color(0xFF0A66C2),
+              inactiveColor: Colors.grey.shade300,
             ),
-            backgroundColor: Colors.black,
+            backgroundColor: const Color(0xFFF8F9FA),
             enableActiveFill: false,
             onChanged: _onOtpChanged,
             onCompleted: (value) {
@@ -504,14 +518,14 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
           const SizedBox(height: 12),
           const Text(
             'Verifying OTP...',
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: Color(0xFF45474C)),
           ),
         ],
         const SizedBox(height: 10),
         _secondsRemaining > 0
             ? Text(
               'Resend OTP in $_secondsRemaining s',
-              style: const TextStyle(color: Colors.white54),
+              style: const TextStyle(color: Colors.black54),
             )
             : _remainingRequests <= 0
             ? Text(
@@ -523,7 +537,7 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
               onPressed: _resendOtp,
               child: const Text(
                 'Resend OTP',
-                style: TextStyle(color: Colors.white),
+                style: TextStyle(color: Color(0xFF091426)),
               ),
             ),
         const SizedBox(height: 6),
@@ -534,7 +548,9 @@ class _OTPScreenState extends State<OTPScreen> with CodeAutoFill {
           textAlign: TextAlign.center,
           style: TextStyle(
             color:
-                _remainingRequests <= 1 ? Colors.orangeAccent : Colors.white38,
+                _remainingRequests <= 1
+                    ? Colors.orange.shade700
+                    : Colors.black45,
             fontSize: 12,
           ),
         ),

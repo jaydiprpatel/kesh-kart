@@ -1,13 +1,14 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:kesh_kart/layout/keshkart_desktop_frame.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:kesh_kart/barber/service.dart';
 import 'package:kesh_kart/commons.dart';
+import 'package:kesh_kart/login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:kesh_kart/bedrock_client.dart';
-import 'package:path/path.dart' as path;
+import 'package:kesh_kart/theme/keshkart_theme.dart';
 
 class BarberProfileScreen extends StatefulWidget {
   final String barberId;
@@ -18,6 +19,8 @@ class BarberProfileScreen extends StatefulWidget {
 }
 
 class _BarberProfileScreenState extends State<BarberProfileScreen> {
+  static const _maxShopPhotos = 5;
+
   String? name;
   String? address;
   String? profileUrl;
@@ -85,21 +88,14 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
 
     setState(() => isSubmittingVerification = true);
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      debugPrint(
-        '[KeshKartUpload] verification permission initial=$permission',
-      );
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        debugPrint(
-          '[KeshKartUpload] verification permission requested=$permission',
-        );
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         throw Exception(
-          'Location permission is required for shop verification',
+          'Location permission is required for shop verification.',
         );
       }
 
@@ -108,40 +104,35 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
           accuracy: LocationAccuracy.high,
         ),
       );
-      debugPrint(
-        '[KeshKartUpload] verification location '
-        'lat=${position.latitude} lng=${position.longitude} '
-        'accuracy=${position.accuracy}',
-      );
       final image = await ImagePicker().pickImage(
+        // Shop verification evidence must be captured live in the app. The
+        // gallery is intentionally unavailable for this verification flow.
         source: ImageSource.camera,
         imageQuality: 85,
         maxWidth: 1600,
       );
       if (image == null) {
-        debugPrint('[KeshKartUpload] verification camera cancelled');
-        setState(() => isSubmittingVerification = false);
         return;
       }
 
-      final file = File(image.path);
-      final fileExists = await file.exists();
-      final fileSize = fileExists ? await file.length() : -1;
+      final bytes = await image.readAsBytes();
+      if (bytes.isEmpty) {
+        throw Exception('The selected verification image is empty.');
+      }
+      final filename =
+          image.name.isEmpty ? 'shop-verification.jpg' : image.name;
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final photoPath =
-          'shop_verifications/${widget.barberId}/${timestamp}_${path.basename(image.path)}';
-      debugPrint(
-        '[KeshKartUpload] verification selected barberId=${widget.barberId} '
-        'localPath=${image.path} exists=$fileExists bytes=$fileSize '
-        'storagePath=$photoPath',
+          'shop_verifications/${widget.barberId}/${timestamp}_$filename';
+      final photoUrl = await BedrockClient().uploadBytes(
+        bytes,
+        photoPath,
+        filename: filename,
+        contentType: _contentType(filename),
       );
-      final photoUrl = await BedrockClient().uploadFile(file, photoPath);
       if (photoUrl == null) {
-        throw Exception('Failed to upload verification photo');
+        throw Exception('Failed to upload verification photo.');
       }
-      debugPrint(
-        '[KeshKartUpload] verification upload success storagePath=$photoPath',
-      );
 
       final response = await BedrockClient().submitShopVerification(
         photoUrl: photoUrl,
@@ -150,9 +141,10 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
         longitude: position.longitude,
         accuracyMeters: position.accuracy,
       );
-      debugPrint('[KeshKartUpload] verification submit response=$response');
       if (response == null || response['success'] != true) {
-        throw Exception(response?['error'] ?? 'Verification submit failed');
+        throw Exception(
+          response?['error'] ?? 'Verification submission failed.',
+        );
       }
 
       setState(() {
@@ -161,13 +153,17 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Shop verification submitted for review')),
+        const SnackBar(
+          content: Text('Shop verification submitted for review.'),
+        ),
       );
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
     } finally {
       if (mounted) setState(() => isSubmittingVerification = false);
     }
@@ -178,23 +174,32 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
       context: context,
       builder:
           (_) => AlertDialog(
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
             title: const Text(
-              'Remove Photo?',
-              style: TextStyle(color: Colors.white),
+              'Remove this photo?',
+              style: TextStyle(
+                color: KeshColors.navyPrimary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             content: const Text(
-              'Are you sure you want to remove this photo?',
-              style: TextStyle(color: Colors.white70),
+              'It will no longer appear on your public shop profile.',
+              style: TextStyle(color: KeshColors.textSecondary),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+                child: const Text('Keep photo'),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Remove'),
+                child: const Text(
+                  'Remove',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
               ),
             ],
           ),
@@ -203,7 +208,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
     if (confirmed == true) {
       shopPhotos.removeAt(index);
       await BedrockClient().updateDocument('users', widget.barberId, {
-        'shopPhotos': shopPhotos,
+        'shopPhotos': _persistentShopPhotoPaths(),
       });
 
       setState(() {});
@@ -211,64 +216,77 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
   }
 
   void _addShopPhoto() async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-
-    if (image != null) {
-      // 👉 Add temporary shimmer placeholder
-      final tempId = DateTime.now().millisecondsSinceEpoch.toString();
-      final filename = '${tempId}_${path.basename(image.path)}';
-      final storagePath = 'shop_photos/${widget.barberId}/$filename';
-      debugPrint(
-        '[KeshKartUpload] gallery selected barberId=${widget.barberId} '
-        'localPath=${image.path} storagePath=$storagePath',
-      );
-      setState(() {
-        shopPhotos.add('shimmer_$tempId'); // show shimmer
-      });
-
-      try {
-        final newUrl = await BedrockClient().uploadFile(
-          File(image.path),
-          storagePath,
+    if (shopPhotos.length >= _maxShopPhotos) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You can upload up to 5 shop photos.')),
         );
-        if (newUrl == null) {
-          throw Exception('Bedrock upload failed');
-        }
+      }
+      return;
+    }
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 86,
+      maxWidth: 1800,
+    );
+    if (image == null) {
+      return;
+    }
 
-        // Replace shimmer placeholder with real image
-        final index = shopPhotos.indexWhere((e) => e == 'shimmer_$tempId');
-        if (index != -1) shopPhotos[index] = newUrl;
-        debugPrint(
-          '[KeshKartUpload] gallery replace index=$index total=${shopPhotos.length}',
-        );
-
-        final updateResult = await BedrockClient().updateDocument(
-          'users',
-          widget.barberId,
-          {'shopPhotos': shopPhotos},
-        );
-        debugPrint(
-          '[KeshKartUpload] gallery profile update '
-          'success=${updateResult != null} photoCount=${shopPhotos.length}',
-        );
-
-        setState(() {});
-      } catch (e) {
-        debugPrint('Upload failed: $e');
-        // remove the placeholder shimmer if failed
-        shopPhotos.removeWhere((e) => e.startsWith('shimmer_'));
-        setState(() {});
-        if (!mounted) return;
+    final bytes = await image.readAsBytes();
+    if (bytes.isEmpty) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Photo upload failed. Please try again in a few minutes.',
-            ),
+            content: Text('The selected image could not be read.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    final tempId = DateTime.now().millisecondsSinceEpoch.toString();
+    final filename =
+        image.name.isEmpty ? '$tempId-shop.jpg' : '${tempId}_${image.name}';
+    final storagePath = 'shop_photos/${widget.barberId}/$filename';
+    setState(() => shopPhotos.add('shimmer_$tempId'));
+
+    try {
+      final newUrl = await BedrockClient().uploadBytes(
+        bytes,
+        storagePath,
+        filename: filename,
+        contentType: _contentType(filename),
+      );
+      if (newUrl == null) throw Exception('Bedrock upload failed.');
+
+      final index = shopPhotos.indexOf('shimmer_$tempId');
+      if (index != -1) shopPhotos[index] = newUrl;
+      final updated = await BedrockClient().updateDocument(
+        'users',
+        widget.barberId,
+        {'shopPhotos': _persistentShopPhotoPaths()},
+      );
+      if (updated == null) throw Exception('Shop profile update failed.');
+      if (mounted) setState(() {});
+    } catch (_) {
+      shopPhotos.removeWhere((photo) => photo == 'shimmer_$tempId');
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Photo upload failed. Please try again.'),
           ),
         );
       }
     }
+  }
+
+  String _contentType(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
   }
 
   Future<List<String>> _resolveShopPhotos(List<String> photos) async {
@@ -280,13 +298,34 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
       }
       try {
         final refreshed = await BedrockClient().getDownloadUrl(photo);
-        resolved.add(refreshed ?? photo);
+        if (refreshed != null && refreshed.isNotEmpty) resolved.add(refreshed);
       } catch (e) {
         debugPrint('[KeshKartUpload] profile photo refresh failed: $e');
-        resolved.add(photo);
       }
     }
     return resolved;
+  }
+
+  /// Download URLs are deliberately short-lived. Persist their underlying
+  /// storage paths so customer gallery images can always receive a fresh URL.
+  List<String> _persistentShopPhotoPaths() =>
+      shopPhotos
+          .where((photo) => _isUsableShopPhoto(photo))
+          .map(_storagePathFromPhoto)
+          .toSet()
+          .toList();
+
+  String _storagePathFromPhoto(String photo) {
+    final value = photo.trim();
+    if (value.startsWith('shop_photos/${widget.barberId}/')) return value;
+    final uri = Uri.tryParse(value);
+    if (uri == null) return value;
+    final segments = uri.pathSegments;
+    final bucketIndex = segments.indexOf('bucket');
+    if (bucketIndex != -1 && segments.length > bucketIndex + 2) {
+      return segments.skip(bucketIndex + 2).join('/');
+    }
+    return value;
   }
 
   bool _isUsableShopPhoto(String photo) {
@@ -327,311 +366,353 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
         iconTheme: const IconThemeData(color: Color(0xFF091426)),
         elevation: 0,
       ),
-      body:
-          isLoading
-              ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFF091426)),
-              )
-              : SingleChildScrollView(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    ClipOval(
-                      child:
-                          (isUploading || imageLoading || profileUrl == null)
-                              ? Shimmer.fromColors(
-                                baseColor: Colors.grey[700]!,
-                                highlightColor: Colors.grey[500]!,
-                                child: Container(
-                                  height: 100,
-                                  width: 100,
-                                  decoration: const BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              )
-                              : Image.network(
-                                profileUrl!,
-                                height: 100,
-                                width: 100,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  if (imageLoading) {
-                                    WidgetsBinding.instance
-                                        .addPostFrameCallback((_) {
-                                          if (mounted) {
-                                            setState(
-                                              () => imageLoading = false,
-                                            );
-                                          }
-                                        });
-                                  }
-                                  return Container(
+      body: KeshKartDesktopFrame(
+        maxWidth: 920,
+        child:
+            isLoading
+                ? const Center(
+                  child: CircularProgressIndicator(color: Color(0xFF091426)),
+                )
+                : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      ClipOval(
+                        child:
+                            (isUploading || imageLoading || profileUrl == null)
+                                ? Shimmer.fromColors(
+                                  baseColor: Colors.grey[700]!,
+                                  highlightColor: Colors.grey[500]!,
+                                  child: Container(
                                     height: 100,
                                     width: 100,
                                     decoration: const BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: Colors.grey,
                                     ),
-                                    child: const Icon(
-                                      Icons.person,
-                                      size: 50,
-                                      color: Colors.white,
-                                    ),
-                                  );
-                                },
-                                loadingBuilder: (
-                                  context,
-                                  child,
-                                  loadingProgress,
-                                ) {
-                                  if (loadingProgress == null) {
-                                    WidgetsBinding.instance
-                                        .addPostFrameCallback((_) {
-                                          if (imageLoading) {
-                                            setState(
-                                              () => imageLoading = false,
-                                            );
-                                          }
-                                        });
-                                    return child;
-                                  } else {
-                                    return Shimmer.fromColors(
-                                      baseColor: Colors.grey[700]!,
-                                      highlightColor: Colors.grey[500]!,
-                                      child: Container(
-                                        height: 100,
-                                        width: 100,
-                                        decoration: const BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: Colors.grey,
-                                        ),
+                                  ),
+                                )
+                                : Image.network(
+                                  profileUrl!,
+                                  height: 100,
+                                  width: 100,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    if (imageLoading) {
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            if (mounted) {
+                                              setState(
+                                                () => imageLoading = false,
+                                              );
+                                            }
+                                          });
+                                    }
+                                    return Container(
+                                      height: 100,
+                                      width: 100,
+                                      decoration: const BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.grey,
+                                      ),
+                                      child: const Icon(
+                                        Icons.person,
+                                        size: 50,
+                                        color: Colors.white,
                                       ),
                                     );
-                                  }
-                                },
-                              ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      name ?? '',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF091426),
+                                  },
+                                  loadingBuilder: (
+                                    context,
+                                    child,
+                                    loadingProgress,
+                                  ) {
+                                    if (loadingProgress == null) {
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            if (imageLoading) {
+                                              setState(
+                                                () => imageLoading = false,
+                                              );
+                                            }
+                                          });
+                                      return child;
+                                    } else {
+                                      return Shimmer.fromColors(
+                                        baseColor: Colors.grey[700]!,
+                                        highlightColor: Colors.grey[500]!,
+                                        child: Container(
+                                          height: 100,
+                                          width: 100,
+                                          decoration: const BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    totalReviews == 0
-                        ? const Text(
-                          '⭐ No reviews yet — your experience matters!',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Color(0xFF54647A),
-                          ),
-                        )
-                        : Text(
-                          '⭐ ${rating.toStringAsFixed(1)} from $totalReviews reviews',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Color(0xFF54647A),
-                          ),
-                        ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.location_on,
-                          size: 20,
+                      const SizedBox(height: 12),
+                      Text(
+                        name ?? '',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                           color: Color(0xFF091426),
                         ),
-                        const SizedBox(width: 5),
-                        Flexible(
-                          child: Text(
-                            address ?? '',
-                            style: const TextStyle(color: Color(0xFF091426)),
+                      ),
+                      const SizedBox(height: 6),
+                      totalReviews == 0
+                          ? const Text(
+                            '⭐ No reviews yet — your experience matters!',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Color(0xFF54647A),
+                            ),
+                          )
+                          : Text(
+                            '⭐ ${rating.toStringAsFixed(1)} from $totalReviews reviews',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Color(0xFF54647A),
+                            ),
                           ),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.edit,
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.location_on,
                             size: 20,
                             color: Color(0xFF091426),
                           ),
-                          onPressed: () {},
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildVerificationCard(),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(top: 20.0, bottom: 10),
-                          child: Text(
-                            'Your Shop Gallery',
-                            style: TextStyle(
-                              color: Color(0xFF091426),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              address ?? '',
+                              style: const TextStyle(color: Color(0xFF091426)),
                             ),
                           ),
-                        ),
-                        SizedBox(
-                          height: 100,
-                          child: ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: shopPhotos.length + 1,
-                            itemBuilder: (context, index) {
-                              if (index == shopPhotos.length) {
-                                return GestureDetector(
-                                  onTap: _addShopPhoto,
-                                  child: Container(
-                                    width: 100,
-                                    height: 100,
-                                    margin: const EdgeInsets.only(right: 10),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[800],
-                                      borderRadius: BorderRadius.circular(10),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit,
+                              size: 20,
+                              color: Color(0xFF091426),
+                            ),
+                            onPressed: () {},
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _buildVerificationCard(),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.only(top: 20.0, bottom: 10),
+                            child: Text(
+                              'Your Shop Gallery (${shopPhotos.length}/$_maxShopPhotos)',
+                              style: const TextStyle(
+                                color: Color(0xFF091426),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            height: 100,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount:
+                                  shopPhotos.length +
+                                  (shopPhotos.length < _maxShopPhotos ? 1 : 0),
+                              itemBuilder: (context, index) {
+                                if (index == shopPhotos.length) {
+                                  return GestureDetector(
+                                    onTap: _addShopPhoto,
+                                    child: Container(
+                                      width: 100,
+                                      height: 100,
+                                      margin: const EdgeInsets.only(right: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[800],
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.add_a_photo,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    child: const Icon(
-                                      Icons.add_a_photo,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                );
-                              }
-                              final url = shopPhotos[index];
-                              return Stack(
-                                children: [
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 10),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child:
-                                          url.startsWith('shimmer_')
-                                              ? Shimmer.fromColors(
-                                                baseColor: Colors.grey[700]!,
-                                                highlightColor:
-                                                    Colors.grey[500]!,
-                                                child: Container(
-                                                  height: 100,
-                                                  width: 100,
-                                                  margin: const EdgeInsets.only(
-                                                    right: 10,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.grey,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
+                                  );
+                                }
+                                final url = shopPhotos[index];
+                                return Stack(
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 10),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child:
+                                            url.startsWith('shimmer_')
+                                                ? Shimmer.fromColors(
+                                                  baseColor: Colors.grey[700]!,
+                                                  highlightColor:
+                                                      Colors.grey[500]!,
+                                                  child: Container(
+                                                    height: 100,
+                                                    width: 100,
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                          right: 10,
                                                         ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.grey,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            10,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                )
+                                                : ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  child: Image.network(
+                                                    url,
+                                                    height: 100,
+                                                    width: 100,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return _buildBrokenPhoto();
+                                                    },
+                                                    loadingBuilder: (
+                                                      context,
+                                                      child,
+                                                      loadingProgress,
+                                                    ) {
+                                                      if (loadingProgress ==
+                                                          null) {
+                                                        return child;
+                                                      }
+                                                      return Shimmer.fromColors(
+                                                        baseColor:
+                                                            Colors.grey[700]!,
+                                                        highlightColor:
+                                                            Colors.grey[500]!,
+                                                        child: Container(
+                                                          height: 100,
+                                                          width: 100,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      );
+                                                    },
                                                   ),
                                                 ),
-                                              )
-                                              : ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                                child: Image.network(
-                                                  url,
-                                                  height: 100,
-                                                  width: 100,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (
-                                                    context,
-                                                    error,
-                                                    stackTrace,
-                                                  ) {
-                                                    return _buildBrokenPhoto();
-                                                  },
-                                                  loadingBuilder: (
-                                                    context,
-                                                    child,
-                                                    loadingProgress,
-                                                  ) {
-                                                    if (loadingProgress ==
-                                                        null) {
-                                                      return child;
-                                                    }
-                                                    return Shimmer.fromColors(
-                                                      baseColor:
-                                                          Colors.grey[700]!,
-                                                      highlightColor:
-                                                          Colors.grey[500]!,
-                                                      child: Container(
-                                                        height: 100,
-                                                        width: 100,
-                                                        color: Colors.grey,
-                                                      ),
-                                                    );
-                                                  },
-                                                ),
-                                              ),
+                                      ),
                                     ),
-                                  ),
-                                  Positioned(
-                                    top: 2,
-                                    right: 2,
-                                    child: GestureDetector(
-                                      onTap: () => _removeShopPhoto(index),
-                                      child: const CircleAvatar(
-                                        radius: 12,
-                                        backgroundColor: Colors.black87,
-                                        child: Icon(
-                                          Icons.close,
-                                          size: 14,
-                                          color: Colors.white,
+                                    Positioned(
+                                      top: 2,
+                                      right: 2,
+                                      child: GestureDetector(
+                                        onTap: () => _removeShopPhoto(index),
+                                        child: const CircleAvatar(
+                                          radius: 12,
+                                          backgroundColor: Colors.black87,
+                                          child: Icon(
+                                            Icons.close,
+                                            size: 14,
+                                            color: Colors.white,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              );
-                            },
+                                  ],
+                                );
+                              },
+                            ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF091426),
+                          foregroundColor: Colors.white,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF091426),
-                        foregroundColor: Colors.white,
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            slideUpRoute(
+                              GroomingMenuScreen(barberId: widget.barberId),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.miscellaneous_services),
+                        label: const Text('Manage Services'),
                       ),
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          slideUpRoute(
-                            GroomingMenuScreen(barberId: widget.barberId),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.miscellaneous_services),
-                      label: const Text('Manage Services'),
-                    ),
-                    const SizedBox(height: 10),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
+                      const SizedBox(height: 10),
+                      TextButton(
+                        onPressed: _logout,
+                        child: const Text(
+                          'Logout',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+      ),
+    );
+  }
 
-                          slideUpRoute(
-                            GroomingMenuScreen(barberId: widget.barberId),
-                          ),
-                        );
-                      },
-                      child: const Text(
-                        'Logout',
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Log out?',
+              style: TextStyle(
+                color: Color(0xFF091426),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: const Text(
+              'You will need OTP verification to sign in again.',
+              style: TextStyle(color: Color(0xFF45474C)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  'Log out',
+                  style: TextStyle(color: Colors.redAccent),
                 ),
               ),
+            ],
+          ),
+    );
+    if (confirm != true) return;
+
+    final client = BedrockClient.instance;
+    await client.logout();
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LogInScreen()),
+      (_) => false,
     );
   }
 
@@ -678,7 +759,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
             ? (verificationNote?.isNotEmpty == true
                 ? verificationNote!
                 : 'Capture a clear shop-front photo from your shop location and submit again.')
-            : 'Capture a live shop photo with GPS to prevent fake shop listings.';
+            : 'Use your phone camera to capture a live shop-front photo. We record your current GPS location; gallery images are not accepted.';
 
     return Container(
       width: double.infinity,
@@ -747,7 +828,7 @@ class _BarberProfileScreenState extends State<BarberProfileScreen> {
                       ? 'Under review'
                       : isRejected
                       ? 'Submit again'
-                      : 'Capture shop photo',
+                      : 'Capture shop-front photo',
                 ),
               ),
             ),

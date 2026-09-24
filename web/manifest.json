@@ -1,11 +1,11 @@
 {
-    "name": "kesh_kart",
-    "short_name": "kesh_kart",
+    "name": "KeshKart",
+    "short_name": "KeshKart",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#hexcode",
-    "theme_color": "#hexcode",
-    "description": "A new Flutter project.",
+    "background_color": "#F8F9FA",
+    "theme_color": "#091426",
+    "description": "KeshKart tools for independent barbers to manage bookings and shop availability.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -107,13 +107,7 @@ class TruecallerLoginService {
       );
 
       final codeVerifier = await TcSdk.generateRandomCodeVerifier;
-      debugPrint(
-        '[Truecaller SDK Diagnostic] Generated Code Verifier: $codeVerifier',
-      );
       final codeChallenge = await TcSdk.generateCodeChallenge(codeVerifier);
-      debugPrint(
-        '[Truecaller SDK Diagnostic] Generated Code Challenge: $codeChallenge',
-      );
 
       if (codeChallenge == null || codeChallenge.isEmpty) {
         debugPrint(
@@ -131,19 +125,13 @@ class TruecallerLoginService {
       unawaited(TcSdk.setCodeChallenge(codeChallenge));
       await Future<void>.delayed(const Duration(milliseconds: 80));
       debugPrint(
-        '[Truecaller SDK Diagnostic] Code Challenge set. Launching Truecaller authorization sheet...',
+        '[Truecaller SDK Diagnostic] Code Challenge configured. Launching Truecaller authorization...',
       );
 
       unawaited(TcSdk.getAuthorizationCode);
-      debugPrint(
-        '[Truecaller SDK Diagnostic] getAuthorizationCode task dispatched',
-      );
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint(
         '[Truecaller SDK Diagnostic] Exception during startLogin configuration: $e',
-      );
-      debugPrint(
-        '[Truecaller SDK Diagnostic] startLogin stack trace: $stackTrace',
       );
       return _finishWithResult(
         TruecallerLoginResult(
@@ -202,14 +190,10 @@ class TruecallerLoginService {
       case TcSdkCallbackResult.success:
         final oAuthData = callback.tcOAuthData;
         final receivedState = oAuthData?.state?.toString();
-        debugPrint(
-          '[Truecaller SDK Diagnostic] Success. State: $receivedState, AuthCode: ${oAuthData?.authorizationCode?.toString()}',
-        );
+        debugPrint('[Truecaller SDK Diagnostic] Success callback received');
 
         if (_oauthState != null && receivedState != _oauthState) {
-          debugPrint(
-            '[Truecaller SDK Diagnostic] State mismatch error! Expected: $_oauthState, Received: $receivedState',
-          );
+          debugPrint('[Truecaller SDK Diagnostic] State mismatch error');
           _complete(
             const TruecallerLoginResult(
               errorMessage:
@@ -226,17 +210,13 @@ class TruecallerLoginService {
         );
         break;
       case TcSdkCallbackResult.verificationComplete:
-        debugPrint(
-          '[Truecaller SDK Diagnostic] Verification Complete. AccessToken: ${callback.accessToken?.toString()}',
-        );
+        debugPrint('[Truecaller SDK Diagnostic] Verification Complete');
         _complete(
           TruecallerLoginResult(accessToken: callback.accessToken?.toString()),
         );
         break;
       case TcSdkCallbackResult.verifiedBefore:
-        debugPrint(
-          '[Truecaller SDK Diagnostic] Verified Before. AccessToken: ${callback.profile?.accessToken?.toString()}',
-        );
+        debugPrint('[Truecaller SDK Diagnostic] Verified Before');
         _complete(
           TruecallerLoginResult(
             accessToken: callback.profile?.accessToken?.toString(),

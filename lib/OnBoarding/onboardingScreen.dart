@@ -1,3 +1,5 @@
+// ignore_for_file: file_names
+
 import 'package:flutter/material.dart';
 import 'package:kesh_kart/login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,21 +31,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             },
             children: [
               buildPage(
-                title: 'Your Grooming Partner',
-                subtitle: 'Book haircuts, beard trims & more with just a tap',
-                imageAsset: 'assets/images/onboarding1.png',
+                title: 'Your barber workspace',
+                subtitle: 'Run your salon operations from one secure app',
+                imageAsset: 'assets/images/barber.png',
               ),
               buildPage(
-                title: 'Top Barbers Near You',
+                title: 'Bookings, queue and check-ins',
                 subtitle:
-                    'Verified pros with ratings & reviews at your fingertips',
-                imageAsset: 'assets/images/onboarding2.png',
+                    'Keep every chair, customer visit and walk-in organised',
+                imageAsset: 'assets/images/haircut.png',
               ),
               buildPage(
-                title: 'Grooming Products You’ll Love',
+                title: 'Grow with KeshKart Pro',
                 subtitle:
-                    'Buy recommended items directly from your favorite barber',
-                imageAsset: 'assets/images/onboarding3.png',
+                    'Track performance, manage your shop and stay bookable',
+                imageAsset: 'assets/images/mustache.png',
               ),
             ],
           ),
@@ -57,11 +59,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 final prefs = await SharedPreferences.getInstance();
                 prefs.setBool('seenOnboarding', true);
 
-                if (!mounted) return;
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LogInScreen()),
-                );
+                if (context.mounted) {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LogInScreen()),
+                  );
+                }
               },
               child: Text('Skip', style: TextStyle(color: Colors.white)),
             ),
@@ -105,11 +108,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   final prefs = await SharedPreferences.getInstance();
                   prefs.setBool('seenOnboarding', true);
 
-                  if (!mounted) return;
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LogInScreen()),
-                  );
+                  if (context.mounted) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LogInScreen()),
+                    );
+                  }
                 },
                 child: Text('Get Started', style: TextStyle(fontSize: 16)),
               ),
