@@ -194,30 +194,16 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
 
   Future<void> _fetchQueue() async {
     try {
-      final now = DateTime.now();
-
       final response = await BedrockClient().queryCollection(
         'appointments',
         params: {'shopId': widget.shopId},
       );
-
-      // Bedrock returns a list of docs. Filter locally for now for MVP:
-      final validStatus = ['booked', 'arrived', 'in_progress'];
-      final startOfDayMillis =
-          DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
-      final endOfDayMillis = startOfDayMillis + 86400000;
-
-      final filtered =
-          response
-              .where((doc) {
-                if (doc is! Map<String, dynamic>) return false;
-                if (!validStatus.contains(doc['status'])) return false;
-                final slotStart = _millisFromValue(doc['slotStart']);
-                return slotStart >= startOfDayMillis &&
-                    slotStart < endOfDayMillis;
-              })
-              .map((e) => e as Map<String, dynamic>)
-              .toList();
+      final filtered = <Map<String, dynamic>>[];
+      for (final rawDoc in response) {
+        if (rawDoc is! Map) continue;
+        final doc = _normalizeRealtimeDoc(Map<String, dynamic>.from(rawDoc));
+        if (_isVisibleQueueDoc(doc)) filtered.add(doc);
+      }
 
       if (mounted) {
         setState(() {
@@ -236,15 +222,20 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   }
 
   bool _isVisibleQueueDoc(Map<String, dynamic> doc) {
-    final validStatus = ['booked', 'arrived', 'in_progress'];
+    const validStatus = {
+      'booked',
+      'scheduled',
+      'confirmed',
+      'arrived',
+      'in_progress',
+    };
     if (doc['shopId'] != widget.shopId) return false;
     if (!validStatus.contains(doc['status'])) return false;
     final now = DateTime.now();
     final startOfDayMillis =
         DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
-    final endOfDayMillis = startOfDayMillis + 86400000;
     final slotStart = _millisFromValue(doc['slotStart']);
-    return slotStart >= startOfDayMillis && slotStart < endOfDayMillis;
+    return slotStart >= startOfDayMillis;
   }
 
   int _millisFromValue(dynamic value) {
@@ -423,7 +414,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Queue'),
+        title: const Text('Appointments'),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 4),
@@ -468,7 +459,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
           const Expanded(
             child: Center(
               child: Text(
-                "No appointments currently in queue.",
+                'No upcoming or active appointments.',
                 style: TextStyle(fontSize: 16),
               ),
             ),
@@ -550,7 +541,9 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
     }
 
     final timeStr =
-        slotStart != null ? DateFormat.jm().format(slotStart) : 'Unknown Time';
+        slotStart != null
+            ? DateFormat('EEE, d MMM · h:mm a').format(slotStart)
+            : 'Unknown time';
     final customerName = data['customerName'] ?? 'Customer';
     final locationUnverified = data['location_unverified'] ?? false;
     final isLate = data['late'] ?? false;
