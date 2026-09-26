@@ -65,9 +65,17 @@ class _BarberReceiptScannerScreenState
       return;
     }
 
+    final message = result?['error']?.toString().trim();
+    debugPrint(
+      'KeshKart check-in failed: ${message == null || message.isEmpty ? 'empty response' : message}',
+    );
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('This receipt could not be verified for your shop.'),
+      SnackBar(
+        content: Text(
+          message == null || message.isEmpty
+              ? 'Could not contact the check-in service. Please try again.'
+              : message,
+        ),
       ),
     );
     setState(() => _processing = false);

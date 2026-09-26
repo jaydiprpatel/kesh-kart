@@ -14,7 +14,7 @@ class BedrockClient {
   );
   static const String projectId = String.fromEnvironment(
     'KESHKART_PROJECT_ID',
-    defaultValue: '1832d133-a293-44d1-ab05-4b843c84d0f3',
+    defaultValue: 'ceb4dcc9-6993-45c0-a2b2-15ee0617d29a',
   );
   static const String projectKey = String.fromEnvironment(
     'KESHKART_PROJECT_KEY',
@@ -673,6 +673,15 @@ class BedrockClient {
         as Map<String, dynamic>?;
   }
 
+  Future<Map<String, dynamic>?> keshKartBookableSeats(String barberId) async {
+    return await _authenticatedRequest(
+          'GET',
+          'payments/keshkart/barbers/$barberId/seats',
+          preserveError: true,
+        )
+        as Map<String, dynamic>?;
+  }
+
   Future<Map<String, dynamic>?> createKeshKartRazorpayOrder(
     String planCode, {
     required Map<String, dynamic> quote,
@@ -729,6 +738,7 @@ class BedrockClient {
           'POST',
           'keshkart/check-in',
           body: {'receiptToken': receiptPayload},
+          preserveError: true,
         )
         as Map<String, dynamic>?;
   }
@@ -790,6 +800,9 @@ class BedrockClient {
             preserveError: preserveError,
           );
         }
+        if (preserveError) {
+          return {'error': 'Your session has expired. Please sign in again.'};
+        }
       } else {
         if (preserveError) {
           try {
@@ -819,6 +832,12 @@ class BedrockClient {
       }
     } catch (e) {
       debugPrint('Bedrock Request Error ($method $path): $e');
+      if (preserveError) {
+        return {
+          'error':
+              'Unable to reach the check-in service. Check your connection and try again.',
+        };
+      }
       return null;
     }
   }

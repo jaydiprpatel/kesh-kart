@@ -24,8 +24,58 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
 
   DateTime _selectedDate = DateTime.now();
   String? _selectedSlot;
+  List<Map<String, dynamic>> _seats = const [];
+  String? _selectedSeatId;
+  bool _seatsLoading = true;
+  String? _seatsError;
   String _reminderChannel = 'calendar';
   bool _isBooking = false;
+
+  String get _shopId => _text(
+    widget.barber['id'],
+    fallback: _text(
+      widget.barber['_id'],
+      fallback: _text(widget.barber['uid']),
+    ),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeats();
+  }
+
+  Future<void> _loadSeats() async {
+    final shopId = _shopId;
+    if (shopId.isEmpty) {
+      setState(() {
+        _seatsLoading = false;
+        _seatsError = 'This shop is unavailable.';
+      });
+      return;
+    }
+    final response = await BedrockClient.instance.keshKartBookableSeats(shopId);
+    if (!mounted) return;
+    final rawSeats = response?['seats'];
+    final seats =
+        rawSeats is List
+            ? rawSeats
+                .whereType<Map>()
+                .map((seat) => Map<String, dynamic>.from(seat))
+                .where(
+                  (seat) =>
+                      _text(seat['id']).isNotEmpty &&
+                      _text(seat['name']).isNotEmpty,
+                )
+                .toList()
+            : <Map<String, dynamic>>[];
+    setState(() {
+      _seats = seats;
+      _seatsLoading = false;
+      _seatsError = response?['error']?.toString();
+      if (seats.length == 1) _selectedSeatId = _text(seats.first['id']);
+    });
+  }
 
   bool get _shopIsOpen =>
       widget.barber.containsKey('isOpen')
@@ -144,7 +194,10 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
             height: 54,
             child: ElevatedButton(
               onPressed:
-                  _selectedSlot == null || _isBooking || !_shopIsOpen
+                  _selectedSeatId == null ||
+                          _selectedSlot == null ||
+                          _isBooking ||
+                          !_shopIsOpen
                       ? null
                       : _createBooking,
               style: ElevatedButton.styleFrom(
@@ -260,6 +313,74 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
               ],
             ),
           ),
+          const SizedBox(height: 22),
+          const Text(
+            'Choose a seat',
+            style: TextStyle(
+              color: _primary,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Your selected seat is reserved for the full service time.',
+            style: TextStyle(color: Color(0xFF54647A), height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          if (_seatsLoading)
+            const LinearProgressIndicator()
+          else if (_seatsError != null)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _seatsError!,
+                    style: const TextStyle(color: Color(0xFFB42318)),
+                  ),
+                ),
+                TextButton(onPressed: _loadSeats, child: const Text('Retry')),
+              ],
+            )
+          else if (_seats.isEmpty)
+            const Text(
+              'This shop has not added a bookable seat yet. Please contact the barber.',
+              style: TextStyle(color: Color(0xFF54647A), height: 1.35),
+            )
+          else
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children:
+                  _seats.map((seat) {
+                    final seatId = _text(seat['id']);
+                    final selected = _selectedSeatId == seatId;
+                    return ChoiceChip(
+                      selected: selected,
+                      showCheckmark: false,
+                      avatar: Icon(
+                        Icons.chair_outlined,
+                        size: 18,
+                        color: selected ? Colors.white : _primary,
+                      ),
+                      label: Text(_text(seat['name'])),
+                      selectedColor: _primary,
+                      backgroundColor: Colors.white,
+                      side: BorderSide(
+                        color: selected ? _primary : const Color(0xFFE1E3E4),
+                      ),
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.white : _primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      onSelected:
+                          (_) => setState(() {
+                            _selectedSeatId = seatId;
+                            _selectedSlot = null;
+                          }),
+                    );
+                  }).toList(),
+            ),
           const SizedBox(height: 22),
           Text(
             'Choose date',
@@ -411,6 +532,46 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
             ),
           ),
 
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF1EA),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFFFC4AD)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.payments_outlined, color: Color(0xFFE85D39)),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pay at the shop',
+                        style: TextStyle(
+                          color: _primary,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Pay your barber directly when you visit. KeshKart does not collect payment for this appointment.',
+                        style: TextStyle(
+                          color: Color(0xFF54647A),
+                          fontSize: 12,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 14),
           Wrap(
             alignment: WrapAlignment.center,
@@ -458,7 +619,8 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
 
   Future<void> _createBooking() async {
     final slot = _selectedSlot;
-    if (slot == null) return;
+    final seatId = _selectedSeatId;
+    if (slot == null || seatId == null) return;
     if (!_shopIsOpen) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -498,13 +660,7 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
 
     final start = _slotDateTime(_selectedDate, slot);
     final end = start.add(Duration(minutes: _totalDurationMinutes));
-    final shopId = _text(
-      widget.barber['id'],
-      fallback: _text(
-        widget.barber['_id'],
-        fallback: _text(widget.barber['uid']),
-      ),
-    );
+    final shopId = _shopId;
 
     final liveShop = await BedrockClient().getDocument('users', shopId);
     final liveData =
@@ -537,6 +693,7 @@ class _SelectSlotScreenState extends State<SelectSlotScreen> {
         fallback: _text(widget.barber['name'], fallback: 'Barber Shop'),
       ),
       'barberId': shopId,
+      'seatId': seatId,
       'services':
           widget.selectedServices
               .map((service) => {'name': _text(service['name'])})

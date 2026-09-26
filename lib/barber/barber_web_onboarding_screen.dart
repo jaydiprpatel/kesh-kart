@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/customer/legal_document_page.dart';
+import 'package:kesh_kart/customer/signup_terms_consent.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Browser onboarding for a new barber account.
@@ -45,6 +47,7 @@ class _BarberWebOnboardingScreenState extends State<BarberWebOnboardingScreen> {
   Position? _location;
   bool _isLocating = false;
   bool _isSaving = false;
+  bool _termsAccepted = false;
 
   @override
   void dispose() {
@@ -111,6 +114,10 @@ class _BarberWebOnboardingScreenState extends State<BarberWebOnboardingScreen> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!_termsAccepted) {
+      _showMessage('Please accept the Barber Terms & Conditions to continue.');
+      return;
+    }
     final photo = _shopPhoto;
     final photoBytes = _shopPhotoBytes;
     final location = _location;
@@ -156,6 +163,10 @@ class _BarberWebOnboardingScreenState extends State<BarberWebOnboardingScreen> {
           'userType': 'barber',
           'profileCompleted': true,
           'profileCompletedAt': DateTime.now().toUtc().toIso8601String(),
+          'termsAccepted': true,
+          'termsVersion': '2026-09-24',
+          'termsAcceptedAt': DateTime.now().toUtc().toIso8601String(),
+          'privacyAcknowledged': true,
           'shopName': shopName,
           'shopAddress': address,
           // Store the durable path, not the short-lived signed download URL.
@@ -364,6 +375,14 @@ class _BarberWebOnboardingScreenState extends State<BarberWebOnboardingScreen> {
                                       ),
                                     ],
                                   ),
+                                ),
+                                const SizedBox(height: 16),
+                                SignupTermsConsent(
+                                  audience: LegalAudience.barber,
+                                  accepted: _termsAccepted,
+                                  onChanged: (accepted) {
+                                    setState(() => _termsAccepted = accepted);
+                                  },
                                 ),
                                 const SizedBox(height: 24),
                                 SizedBox(

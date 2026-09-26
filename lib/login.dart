@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kesh_kart/access/web_portal.dart';
 import 'package:kesh_kart/access/role_landing.dart';
-import 'package:glowy_borders/glowy_borders.dart';
 import 'package:kesh_kart/bedrock_client.dart';
 import 'package:kesh_kart/choose.dart';
 import 'package:kesh_kart/otp_screen.dart';
@@ -12,7 +10,6 @@ import 'package:kesh_kart/services/notification_service.dart';
 import 'package:kesh_kart/services/truecaller_login_service.dart';
 import 'package:kesh_kart/commons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:shimmer/shimmer.dart';
 
 class LogInScreen extends StatefulWidget {
   const LogInScreen({super.key});
@@ -22,121 +19,90 @@ class LogInScreen extends StatefulWidget {
 }
 
 class _LogInScreenState extends State<LogInScreen> {
-  bool isSignUp = false;
-  double _taglineOpacity = 0.0;
-  TextEditingController phoneNumberController = TextEditingController();
+  final TextEditingController phoneNumberController = TextEditingController();
   final TextEditingController _reviewerPhoneController =
       TextEditingController();
   final TextEditingController _reviewerPasswordController =
       TextEditingController();
+
   bool isLoading = false;
   bool _isReviewerLoginLoading = false;
-  bool _showReviewerLogin = false;
   bool _obscureReviewerPassword = true;
-  bool _isTruecallerLoading = false;
-  bool _isTruecallerUsable = false;
   final TruecallerLoginService _truecallerLoginService =
       TruecallerLoginService();
-  double currentProgress = 0.0;
 
   @override
-  void initState() {
-    super.initState();
-    // Truecaller is intentionally paused. Phone OTP is the only active
-    // customer sign-in method until this integration is revisited.
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      setState(() {
-        _taglineOpacity = 1.0;
-      });
-    });
+  void dispose() {
+    _truecallerLoginService.dispose();
+    phoneNumberController.dispose();
+    _reviewerPhoneController.dispose();
+    _reviewerPasswordController.dispose();
+    super.dispose();
   }
 
-  // ignore: unused_element
-  Future<void> _initializeTruecaller() async {
-    debugPrint('[Truecaller UI Diagnostic] Initializing Truecaller state...');
-    final usable = await _truecallerLoginService.isUsable;
-    debugPrint('[Truecaller UI Diagnostic] Truecaller usability: $usable');
+  void _showMessage(String message) {
     if (!mounted) return;
-    setState(() => _isTruecallerUsable = usable);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _handleTruecallerLogin() async {
-    debugPrint('[Truecaller UI Diagnostic] _handleTruecallerLogin() invoked');
-    if (_isTruecallerLoading || isLoading) {
-      debugPrint(
-        '[Truecaller UI Diagnostic] Action blocked: loading status is active (loading=$isLoading, tcLoading=$_isTruecallerLoading)',
-      );
+  Future<void> _handlePhoneLogin() async {
+    if (isLoading) return;
+
+    final phone = phoneNumberController.text.trim();
+    String cleanedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+    // Strip accidental leading zero ONLY if user typed 11 digits (e.g. 0XXXXXXXXXX)
+    if (cleanedPhone.length == 11 && cleanedPhone.startsWith('0')) {
+      cleanedPhone = cleanedPhone.substring(1);
+    }
+
+    // Ensure we have exactly 10 digits for India standard
+    if (cleanedPhone.length < 10) {
+      _showMessage("Please enter a valid 10-digit number");
       return;
     }
-    setState(() => _isTruecallerLoading = true);
+
+    // Ensure E.164 format with +91
+    String formattedPhone;
+    if (cleanedPhone.startsWith('91') && cleanedPhone.length > 10) {
+      formattedPhone = '+$cleanedPhone';
+    } else {
+      formattedPhone = '+91$cleanedPhone';
+    }
+
+    setState(() => isLoading = true);
 
     try {
-      debugPrint('[Truecaller UI Diagnostic] Starting Truecaller login...');
-      final truecallerResult = await _truecallerLoginService.startLogin();
-      debugPrint(
-        '[Truecaller UI Diagnostic] Truecaller result: $truecallerResult',
-      );
+      final otpResponse = await BedrockClient().requestOtp(formattedPhone);
       if (!mounted) return;
 
-      if (truecallerResult == null) {
-        debugPrint('[Truecaller UI Diagnostic] truecallerResult is null');
-        _showMessage('Truecaller is unavailable. Please continue with OTP.');
-        return;
-      }
+      setState(() => isLoading = false);
 
-      debugPrint(
-        '[Truecaller UI Diagnostic] Result state - hasToken: ${truecallerResult.hasToken}, hasAuthCode: ${truecallerResult.hasAuthorizationCode}, error: ${truecallerResult.errorMessage}',
-      );
-
-      if (!truecallerResult.hasToken &&
-          !truecallerResult.hasAuthorizationCode) {
-        debugPrint(
-          '[Truecaller UI Diagnostic] Truecaller login failed. Surfacing error message: ${truecallerResult.errorMessage}',
-        );
+      if (otpResponse == null || otpResponse['success'] != true) {
         _showMessage(
-          truecallerResult.errorMessage ??
-              'Truecaller is unavailable. Please continue with OTP.',
+          otpResponse?['error']?.toString() ??
+              "Unable to send OTP. Please try again.",
         );
         return;
       }
 
-      debugPrint(
-        '[Truecaller UI Diagnostic] Requesting backend authentication...',
+      Navigator.of(context).push(
+        slideUpRoute(
+          OTPScreen(
+            phoneNumber: formattedPhone,
+            verificationId: 'BEDROCK_OTP',
+            initialRemainingRequests: otpResponse['remaining_requests'] as int?,
+            resendCooldownSeconds: otpResponse['cooldown_seconds'] as int?,
+            maxOtpRequests: otpResponse['max_requests'] as int?,
+          ),
+        ),
       );
-      final response = await BedrockClient().loginWithTruecaller(
-        accessToken: truecallerResult.accessToken,
-        authorizationCode: truecallerResult.authorizationCode,
-        codeVerifier: truecallerResult.codeVerifier,
-      );
-      debugPrint(
-        '[Truecaller UI Diagnostic] Backend response received: $response',
-      );
+    } catch (e) {
       if (!mounted) return;
-
-      if (response == null || response['success'] == false) {
-        final errText =
-            response?['error']?.toString() ??
-            'Truecaller login failed. Please continue with OTP.';
-        debugPrint('[Truecaller UI Diagnostic] Backend auth failed: $errText');
-        _showMessage(errText);
-        return;
-      }
-
-      debugPrint(
-        '[Truecaller UI Diagnostic] Backend auth succeeded. Finalizing login...',
-      );
-      await _finishAuthenticatedLogin(response);
-    } catch (e, stackTrace) {
-      debugPrint(
-        '[Truecaller UI Diagnostic] Unhandled error during Truecaller login flow: $e',
-      );
-      debugPrint('[Truecaller UI Diagnostic] Stack trace: $stackTrace');
-      if (mounted) {
-        _showMessage('Truecaller login failed. Please continue with OTP.');
-      }
-    } finally {
-      if (mounted) setState(() => _isTruecallerLoading = false);
+      setState(() => isLoading = false);
+      _showMessage("Error: ${e.toString()}");
     }
   }
 
@@ -145,7 +111,7 @@ class _LogInScreenState extends State<LogInScreen> {
     final userType = (response['user_type']?.toString() ?? '').toLowerCase();
     final phone = response['phone']?.toString() ?? '';
     if (userId.isEmpty) {
-      _showMessage('Truecaller login failed. Please continue with OTP.');
+      _showMessage('Sign in could not be completed. Please try again.');
       return;
     }
 
@@ -175,8 +141,6 @@ class _LogInScreenState extends State<LogInScreen> {
     if (userType == 'barber') {
       Navigator.pushReplacement(context, slideUpRoute(RoleLanding.barber()));
     } else if (userType == 'customer') {
-      // Android is intentionally barber-only. Customer accounts never enter
-      // customer discovery or booking screens from this binary.
       Navigator.pushReplacement(context, slideUpRoute(RoleLanding.customer()));
     } else {
       _goToSignupChoice(userId, phone);
@@ -186,12 +150,14 @@ class _LogInScreenState extends State<LogInScreen> {
   Future<void> _handleReviewerLogin() async {
     if (_isReviewerLoginLoading || isLoading) return;
 
-    // Reviewer credentials are commonly pasted from a verification form.
-    // Remove whitespace and phone separators before sending the request.
-    final phone = _reviewerPhoneController.text.replaceAll(
+    final suppliedDigits = _reviewerPhoneController.text.replaceAll(
       RegExp(r'[^0-9]'),
       '',
     );
+    final phone =
+        suppliedDigits.length == 12 && suppliedDigits.startsWith('91')
+            ? suppliedDigits.substring(2)
+            : suppliedDigits;
     final password = _reviewerPasswordController.text.trim();
     if (phone.isEmpty || password.isEmpty) {
       _showMessage('Enter the reviewer mobile number and password.');
@@ -254,367 +220,415 @@ class _LogInScreenState extends State<LogInScreen> {
     );
   }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  @override
-  void dispose() {
-    _truecallerLoginService.dispose();
-    phoneNumberController.dispose();
-    _reviewerPhoneController.dispose();
-    _reviewerPasswordController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF8F9FA),
-        elevation: 0,
-        centerTitle: false,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'Welcome to Kesh Kart',
-          style: TextStyle(
-            color: Color(0xFF091426),
-            fontFamily: 'Poppins',
-            fontWeight: FontWeight.bold,
-            fontSize: 30,
-          ),
-        ),
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: IntrinsicHeight(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: loginBlock(),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0D0F13),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenHeight = constraints.maxHeight;
 
-  // ignore: unused_element
-  Widget _buildAuthDivider() {
-    return Row(
-      children: [
-        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            'or',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        Expanded(child: Divider(color: Colors.grey.shade300, thickness: 1)),
-      ],
-    );
-  }
-
-  // ignore: unused_element
-  Widget _buildTruecallerButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: OutlinedButton(
-        onPressed:
-            !_isTruecallerUsable || isLoading || _isTruecallerLoading
-                ? null
-                : _handleTruecallerLogin,
-        style: OutlinedButton.styleFrom(
-          backgroundColor: const Color(0xFF0A66C2),
-          foregroundColor: Colors.white,
-          disabledForegroundColor: Colors.white54,
-          side: BorderSide.none,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child:
-            _isTruecallerLoading
-                ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-                : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ClipOval(
-                      child: Image.asset(
-                        'assets/images/truecaller_logo.png',
-                        width: 30,
-                        height: 30,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        _isTruecallerUsable
-                            ? 'Continue with Truecaller'
-                            : 'Truecaller unavailable - use OTP',
-                        textAlign: TextAlign.center,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-      ),
-    );
-  }
-
-  Widget loginBlock() {
-    return Material(
-      // Add Material widget to ensure proper rendering
-      color: Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Spacer(flex: 2),
-            Image.asset('assets/images/image1.png', height: 250),
-
-            const SizedBox(height: 10),
-            AnimatedOpacity(
-              opacity: _taglineOpacity,
-              duration: const Duration(milliseconds: 800),
-              curve: Curves.easeInOut,
-              child: const Padding(
-                padding: EdgeInsets.only(bottom: 20),
-                child: Text(
-                  'Your smooth grooming experience',
-                  style: TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 17,
-                    color: Colors.black54,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ),
-
-            const Spacer(flex: 3),
-
-            // Username Input
-            isLoading
-                ? Shimmer.fromColors(
-                  baseColor: Colors.grey.shade200,
-                  highlightColor: Colors.grey.shade100,
-                  child: Container(
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    margin: const EdgeInsets.symmetric(vertical: 8),
-                  ),
-                )
-                : Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: Center(
-                    child: TextField(
-                      controller: phoneNumberController,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 25,
-                      ),
-                      keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 15,
-                          horizontal: 10,
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: screenHeight,
+                  child: Stack(
+                    children: [
+                      // 1. Barbershop Hero Image with Seamless Dark Fade (Upper 48%)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: screenHeight * 0.50,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.asset(
+                              'assets/images/login_bg.jpg',
+                              fit: BoxFit.cover,
+                              alignment: const Alignment(0.4, -0.2),
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: const Color(0xFF14171E),
+                                );
+                              },
+                            ),
+                            // Top dark gradient for logo readability
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  stops: [0.0, 0.40],
+                                  colors: [
+                                    Color(0xE60D0F13),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // Left dark gradient for headline contrast
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  stops: [0.0, 0.50, 0.90],
+                                  colors: [
+                                    Color(0xD90D0F13),
+                                    Color(0x770D0F13),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // Bottom smooth fade into background
+                            Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  stops: [0.25, 0.70, 1.0],
+                                  colors: [
+                                    Colors.transparent,
+                                    Color(0xB30D0F13),
+                                    Color(0xFF0D0F13),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        prefixIcon: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Image.asset(
-                            'assets/images/flag.png',
-                            height: 25,
-                            width: 20,
-                          ),
-                        ),
-                        border: InputBorder.none,
-                        hintText: 'Phone Number',
                       ),
-                    ),
-                  ),
-                ),
 
-            if (kIsWeb && KeshKartWebPortal.isBarber) ...[
-              const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed:
-                    _isReviewerLoginLoading
-                        ? null
-                        : () => setState(
-                          () => _showReviewerLogin = !_showReviewerLogin,
-                        ),
-                icon: const Icon(Icons.verified_user_outlined),
-                label: const Text('Razorpay reviewer sign in'),
-              ),
-              if (_showReviewerLogin) ...[
-                const SizedBox(height: 8),
-                _buildReviewerLoginPanel(),
-              ],
-            ],
-            const SizedBox(height: 35),
+                      // 2. Bottom Decorative Ribbon
+                      const Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: _BottomDecorativeRibbon(),
+                      ),
 
-            // Login Button
-            Center(
-              child: AnimatedGradientBorder(
-                borderSize: 2,
-                glowSize: 10,
-                animationProgress: currentProgress, // 🟣 Controls the glow
-                gradientColors: [
-                  Colors.transparent,
-                  Colors.transparent,
-                  Colors.transparent,
-                  Colors.purple.shade50,
-                ],
-                borderRadius: const BorderRadius.all(Radius.circular(999)),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(100),
-                  onTap:
-                      isLoading
-                          ? null
-                          : () async {
-                            final phone = phoneNumberController.text.trim();
-                            String cleanedPhone = phone.replaceAll(
-                              RegExp(r'[^0-9]'),
-                              '',
-                            );
+                      // 3. Foreground Content Column (Proportionally Spaced to fit 1 page)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SizedBox(
+                              height: topPadding > 0 ? topPadding + 4 : 14,
+                            ),
 
-                            // Strip accidental leading zero ONLY if user typed 11 digits (e.g. 0XXXXXXXXXX)
-                            if (cleanedPhone.length == 11 &&
-                                cleanedPhone.startsWith('0')) {
-                              cleanedPhone = cleanedPhone.substring(1);
-                            }
+                            // Top Gold Kesh Kart Logo
+                            const _KeshKartLogoHeader(),
 
-                            // Ensure we have exactly 10 digits for the actual number (India standard)
-                            if (cleanedPhone.length < 10) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Please enter a valid 10-digit number",
+                            const SizedBox(height: 12),
+
+                            // Left-aligned Welcome Headline
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Welcome to',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'Popins',
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
-                              );
-                              return;
-                            }
-
-                            // Ensure E.164 format with +91
-                            String formattedPhone;
-                            if (cleanedPhone.startsWith('91') &&
-                                cleanedPhone.length > 10) {
-                              formattedPhone = '+$cleanedPhone';
-                            } else {
-                              formattedPhone = '+91$cleanedPhone';
-                            }
-
-                            setState(() {
-                              currentProgress = 1.0;
-                              isLoading = true;
-                            });
-
-                            try {
-                              final otpResponse = await BedrockClient()
-                                  .requestOtp(formattedPhone);
-                              if (!mounted) return;
-
-                              setState(() {
-                                currentProgress = 0.0;
-                                isLoading = false;
-                              });
-
-                              if (otpResponse == null ||
-                                  otpResponse['success'] != true) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      otpResponse?['error']?.toString() ??
-                                          "Unable to send OTP. Please try again.",
+                                ShaderMask(
+                                  blendMode: BlendMode.srcIn,
+                                  shaderCallback:
+                                      (bounds) => const LinearGradient(
+                                        colors: [
+                                          Color(0xFFFFF0D0),
+                                          Color(0xFFE8BD70),
+                                          Color(0xFFBF8832),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ).createShader(bounds),
+                                  child: const Text(
+                                    'Kesh Kart',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 34,
+                                      fontWeight: FontWeight.w900,
+                                      fontFamily: 'Popins',
+                                      height: 1.1,
+                                      letterSpacing: 0.5,
                                     ),
                                   ),
-                                );
-                                return;
-                              }
-
-                              Navigator.of(context).push(
-                                slideUpRoute(
-                                  OTPScreen(
-                                    phoneNumber: formattedPhone,
-                                    verificationId: 'BEDROCK_OTP',
-                                    initialRemainingRequests:
-                                        otpResponse['remaining_requests']
-                                            as int?,
-                                    resendCooldownSeconds:
-                                        otpResponse['cooldown_seconds'] as int?,
-                                    maxOtpRequests:
-                                        otpResponse['max_requests'] as int?,
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Your smooth grooming experience',
+                                  style: TextStyle(
+                                    color: Color(0xFFC7CDD8),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w400,
+                                    fontFamily: 'Popins',
                                   ),
                                 ),
-                              );
-                            } catch (e) {
-                              setState(() {
-                                currentProgress = 0.0;
-                                isLoading = false;
-                              });
+                              ],
+                            ),
 
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text("Error: ${e.toString()}"),
+                            // Proportional spacer between headline and features card
+                            const Spacer(flex: 3),
+
+                            // Feature Highlights Card
+                            _buildFeaturesCard(),
+
+                            const SizedBox(height: 14),
+
+                            // Phone Number Input Box
+                            _buildPhoneInputBox(),
+
+                            const SizedBox(height: 16),
+
+                            // Circular Glowing Arrow Button
+                            Center(child: _buildSubmitButton()),
+
+                            // Proportional spacer above bottom wave
+                            const Spacer(flex: 2),
+
+                            // The dedicated reviewer account is only accepted
+                            // server-side for one configured phone number. It
+                            // must be reachable in the Android barber build as
+                            // well as the barber web portal for Play review.
+                            if (!kIsWeb || KeshKartWebPortal.isBarber)
+                              Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: InkWell(
+                                    onTap:
+                                        () => _showReviewerLoginDialog(context),
+                                    child: const Text(
+                                      'Reviewer sign in',
+                                      style: TextStyle(
+                                        color: Color(0xFFE8BD70),
+                                        fontSize: 12,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              );
-                            }
-                          },
+                              ),
 
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF091426),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      CupertinoIcons.arrow_right,
-                      color: Colors.white,
-                      size: 30,
-                    ),
+                            // Space reserved for the bottom wave text
+                            const SizedBox(height: 70),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-            const Spacer(flex: 1),
-          ],
+  void _showReviewerLoginDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+            child: _buildReviewerLoginPanel(),
+          ),
+    );
+  }
+
+  Widget _buildFeaturesCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF15181E).withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.10),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          Expanded(
+            child: _FeatureItem(
+              icon: Icons.calendar_month_outlined,
+              label: 'Book\nAppointment',
+            ),
+          ),
+          Expanded(
+            child: _FeatureItem(
+              icon: Icons.content_cut_rounded,
+              label: 'Professional\nStylists',
+            ),
+          ),
+          Expanded(
+            child: _FeatureItem(
+              icon: Icons.verified_user_outlined,
+              label: 'Hygienic\n& Safe',
+            ),
+          ),
+          Expanded(
+            child: _FeatureItem(
+              icon: Icons.star_rounded,
+              label: 'Great\nExperience',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoneInputBox() {
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8BD70), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFE8BD70).withValues(alpha: 0.22),
+            blurRadius: 14,
+            spreadRadius: 1,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(width: 14),
+          Image.asset(
+            'assets/images/flag.png',
+            height: 20,
+            width: 26,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return const Text('🇮🇳', style: TextStyle(fontSize: 20));
+            },
+          ),
+          const SizedBox(width: 4),
+          const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Color(0xFF6B7280),
+            size: 20,
+          ),
+          Container(
+            height: 24,
+            width: 1.2,
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            color: const Color(0xFFD1D5DB),
+          ),
+          Expanded(
+            child: TextField(
+              controller: phoneNumberController,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
+              style: const TextStyle(
+                color: Color(0xFF111827),
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Popins',
+                letterSpacing: 0.5,
+              ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                errorBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                focusedErrorBorder: InputBorder.none,
+                hintText: 'Phone Number',
+                hintStyle: TextStyle(
+                  color: Color(0xFF9CA3AF),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
+                  fontFamily: 'Popins',
+                ),
+                contentPadding: EdgeInsets.symmetric(vertical: 14),
+                isDense: true,
+              ),
+              onSubmitted: (_) => _handlePhoneLogin(),
+            ),
+          ),
+          const SizedBox(width: 14),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          colors: [Color(0xFF282D38), Color(0xFF11141A)],
+          center: Alignment(-0.2, -0.3),
+        ),
+        border: Border.all(color: const Color(0xFFE8BD70), width: 2.0),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFE8BD70).withValues(alpha: 0.40),
+            blurRadius: 18,
+            spreadRadius: 2,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(29),
+          onTap: isLoading ? null : _handlePhoneLogin,
+          child: Center(
+            child:
+                isLoading
+                    ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color(0xFFE8BD70),
+                        ),
+                      ),
+                    )
+                    : const Icon(
+                      Icons.arrow_forward_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+          ),
         ),
       ),
     );
@@ -624,33 +638,38 @@ class _LogInScreenState extends State<LogInScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFF15181E),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: const Color(0xFF091426).withValues(alpha: .16),
+          color: const Color(0xFFE8BD70).withValues(alpha: 0.4),
         ),
       ),
       child: Column(
         children: [
           const Text(
             'Razorpay verification access',
-            style: TextStyle(fontWeight: FontWeight.w700),
+            style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white),
           ),
           const SizedBox(height: 4),
           const Text(
             'Use the dedicated test mobile number and password supplied for review.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.black54, fontSize: 13),
+            style: TextStyle(color: Colors.white70, fontSize: 13),
           ),
           const SizedBox(height: 14),
           TextField(
             controller: _reviewerPhoneController,
             keyboardType: TextInputType.phone,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            maxLength: 10,
+            maxLength: 12,
+            style: const TextStyle(color: Colors.white),
             decoration: const InputDecoration(
               labelText: 'Test mobile number',
+              labelStyle: TextStyle(color: Colors.white70),
               border: OutlineInputBorder(),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white24),
+              ),
               counterText: '',
             ),
           ),
@@ -658,9 +677,14 @@ class _LogInScreenState extends State<LogInScreen> {
           TextField(
             controller: _reviewerPasswordController,
             obscureText: _obscureReviewerPassword,
+            style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               labelText: 'Password',
+              labelStyle: const TextStyle(color: Colors.white70),
               border: const OutlineInputBorder(),
+              enabledBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white24),
+              ),
               suffixIcon: IconButton(
                 onPressed:
                     () => setState(
@@ -671,6 +695,7 @@ class _LogInScreenState extends State<LogInScreen> {
                   _obscureReviewerPassword
                       ? Icons.visibility_outlined
                       : Icons.visibility_off_outlined,
+                  color: Colors.white70,
                 ),
               ),
             ),
@@ -679,20 +704,463 @@ class _LogInScreenState extends State<LogInScreen> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: FilledButton(
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE8BD70),
+                foregroundColor: const Color(0xFF0D0F13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
               onPressed: _isReviewerLoginLoading ? null : _handleReviewerLogin,
               child:
                   _isReviewerLoginLoading
                       ? const SizedBox(
                         height: 20,
                         width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF0D0F13),
+                          ),
+                        ),
                       )
-                      : const Text('Open reviewer account'),
+                      : const Text(
+                        'Open reviewer account',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+// -------------------------------------------------------------
+// Component: Top Logo Header
+// -------------------------------------------------------------
+class _KeshKartLogoHeader extends StatelessWidget {
+  const _KeshKartLogoHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Golden Scissors & Comb Emblem
+        CustomPaint(
+          size: const Size(36, 32),
+          painter: _ScissorsCombEmblemPainter(),
+        ),
+        const SizedBox(height: 4),
+        // KESH KART Brand Name
+        ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback:
+              (bounds) => const LinearGradient(
+                colors: [
+                  Color(0xFFFFF0D0),
+                  Color(0xFFE8BD70),
+                  Color(0xFFBF8832),
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ).createShader(bounds),
+          child: const Text(
+            'KESH KART',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 3.0,
+              fontFamily: 'Popins',
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        // Tagline
+        const Text(
+          'LOOK GOOD     FEEL BETTER',
+          style: TextStyle(
+            color: Color(0xFFE8BD70),
+            fontSize: 8.0,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2.0,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: 34,
+          height: 1.5,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8BD70),
+            borderRadius: BorderRadius.circular(1),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// Component: Individual Feature Pill
+// -------------------------------------------------------------
+class _FeatureItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _FeatureItem({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFF222631),
+            border: Border.all(
+              color: const Color(0xFFE8BD70).withValues(alpha: 0.35),
+              width: 1.0,
+            ),
+          ),
+          child: Icon(icon, color: const Color(0xFFE8BD70), size: 18),
+        ),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFFDDE1E8),
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              fontFamily: 'Popins',
+              height: 1.2,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// Component: Bottom Decorative Flowing Ribbon
+// -------------------------------------------------------------
+class _BottomDecorativeRibbon extends StatelessWidget {
+  const _BottomDecorativeRibbon();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 80,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          // Wave Graphic Painter
+          Positioned.fill(child: CustomPaint(painter: _BottomWavePainter())),
+          // Watermark on Bottom Right
+          Positioned(
+            right: 14,
+            bottom: 2,
+            child: Opacity(
+              opacity: 0.16,
+              child: Transform.rotate(
+                angle: -0.35,
+                child: CustomPaint(
+                  size: const Size(70, 65),
+                  painter: _BarberWatermarkPainter(),
+                ),
+              ),
+            ),
+          ),
+          // "Grooming Made Simple" Text on Bottom Left
+          Positioned(
+            left: 20,
+            bottom: 12,
+            child: Transform.rotate(
+              angle: -0.14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Grooming',
+                    style: TextStyle(
+                      color: Color(0xFFC7CDD8),
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w300,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                  const Text(
+                    'Made Simple',
+                    style: TextStyle(
+                      color: Color(0xFFC7CDD8),
+                      fontSize: 17,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.6,
+                      height: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Container(
+                    width: 44,
+                    height: 1.5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE8BD70),
+                      borderRadius: BorderRadius.circular(1),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// -------------------------------------------------------------
+// Painter: Scissors & Comb Emblem for Logo
+// -------------------------------------------------------------
+class _ScissorsCombEmblemPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final goldPaint =
+        Paint()
+          ..color = const Color(0xFFE8BD70)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round;
+
+    final fillGold =
+        Paint()
+          ..color = const Color(0xFFE8BD70)
+          ..style = PaintingStyle.fill;
+
+    // Comb on the right
+    final combLeft = size.width * 0.65;
+    final combRight = size.width * 0.76;
+    final combTop = size.height * 0.12;
+    final combBottom = size.height * 0.88;
+
+    // Comb spine
+    canvas.drawLine(
+      Offset(combRight, combTop),
+      Offset(combRight, combBottom),
+      Paint()
+        ..color = const Color(0xFFE8BD70)
+        ..strokeWidth = 2.8
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Comb teeth
+    const teethCount = 7;
+    for (int i = 0; i < teethCount; i++) {
+      final y = combTop + (combBottom - combTop) * (i / (teethCount - 1));
+      canvas.drawLine(
+        Offset(combLeft, y),
+        Offset(combRight, y),
+        Paint()
+          ..color = const Color(0xFFE8BD70)
+          ..strokeWidth = 1.4,
+      );
+    }
+
+    // Scissors on the left
+    // Left finger loop
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.24, size.height * 0.78),
+        width: 10,
+        height: 14,
+      ),
+      goldPaint,
+    );
+
+    // Right finger loop
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(size.width * 0.44, size.height * 0.78),
+        width: 10,
+        height: 14,
+      ),
+      goldPaint,
+    );
+
+    // Pivot screw
+    canvas.drawCircle(
+      Offset(size.width * 0.34, size.height * 0.52),
+      2.0,
+      fillGold,
+    );
+
+    // Blade 1
+    canvas.drawLine(
+      Offset(size.width * 0.25, size.height * 0.70),
+      Offset(size.width * 0.45, size.height * 0.14),
+      goldPaint,
+    );
+
+    // Blade 2
+    canvas.drawLine(
+      Offset(size.width * 0.43, size.height * 0.70),
+      Offset(size.width * 0.20, size.height * 0.14),
+      goldPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// -------------------------------------------------------------
+// Painter: Sweeping Bottom Wave with Golden Accent Border
+// -------------------------------------------------------------
+class _BottomWavePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 1. Lower Dark Body
+    final darkPath = Path();
+    darkPath.moveTo(0, size.height * 0.32);
+    darkPath.cubicTo(
+      size.width * 0.38,
+      size.height * 0.72,
+      size.width * 0.70,
+      size.height * 0.15,
+      size.width,
+      size.height * 0.42,
+    );
+    darkPath.lineTo(size.width, size.height);
+    darkPath.lineTo(0, size.height);
+    darkPath.close();
+
+    final darkPaint = Paint()..color = const Color(0xFF090B0F);
+    canvas.drawPath(darkPath, darkPaint);
+
+    // 2. Golden Contour Stroke Ribbon
+    final goldStrokePath = Path();
+    goldStrokePath.moveTo(0, size.height * 0.32);
+    goldStrokePath.cubicTo(
+      size.width * 0.38,
+      size.height * 0.72,
+      size.width * 0.70,
+      size.height * 0.15,
+      size.width,
+      size.height * 0.42,
+    );
+
+    final goldGradient = const LinearGradient(
+      colors: [
+        Color(0xFF8A6520),
+        Color(0xFFFFECBC),
+        Color(0xFFE8BD70),
+        Color(0xFFA87724),
+      ],
+      stops: [0.0, 0.45, 0.75, 1.0],
+    ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    final goldStrokePaint =
+        Paint()
+          ..shader = goldGradient
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.6
+          ..strokeCap = StrokeCap.round;
+
+    canvas.drawPath(goldStrokePath, goldStrokePaint);
+
+    // Secondary subtle lower gold highlight wave
+    final subGoldPath = Path();
+    subGoldPath.moveTo(0, size.height * 0.46);
+    subGoldPath.cubicTo(
+      size.width * 0.42,
+      size.height * 0.85,
+      size.width * 0.75,
+      size.height * 0.32,
+      size.width,
+      size.height * 0.55,
+    );
+
+    final subGoldPaint =
+        Paint()
+          ..shader = goldGradient
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
+
+    canvas.drawPath(subGoldPath, subGoldPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// -------------------------------------------------------------
+// Painter: Translucent Barber Comb & Scissors Watermark
+// -------------------------------------------------------------
+class _BarberWatermarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final goldPaint =
+        Paint()
+          ..color = const Color(0xFFE8BD70)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.2
+          ..strokeCap = StrokeCap.round;
+
+    // Comb outline
+    final spineX = size.width * 0.82;
+    canvas.drawLine(
+      Offset(spineX, 10),
+      Offset(spineX, size.height - 10),
+      Paint()
+        ..color = const Color(0xFFE8BD70)
+        ..strokeWidth = 5.0
+        ..strokeCap = StrokeCap.round,
+    );
+
+    for (double y = 16; y < size.height - 12; y += 12) {
+      canvas.drawLine(
+        Offset(size.width * 0.52, y),
+        Offset(spineX, y),
+        Paint()
+          ..color = const Color(0xFFE8BD70)
+          ..strokeWidth = 2.4,
+      );
+    }
+
+    // Scissors outline
+    canvas.drawCircle(
+      Offset(size.width * 0.24, size.height * 0.78),
+      14,
+      goldPaint,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.50, size.height * 0.82),
+      14,
+      goldPaint,
+    );
+
+    canvas.drawLine(
+      Offset(size.width * 0.24, size.height * 0.68),
+      Offset(size.width * 0.48, 12),
+      goldPaint,
+    );
+    canvas.drawLine(
+      Offset(size.width * 0.48, size.height * 0.70),
+      Offset(size.width * 0.16, 16),
+      goldPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

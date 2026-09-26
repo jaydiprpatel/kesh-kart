@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:kesh_kart/barber/home.dart';
 import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/customer/legal_document_page.dart';
+import 'package:kesh_kart/customer/signup_terms_consent.dart';
 import 'package:kesh_kart/services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,6 +41,7 @@ class _BarberRegistrationScreenState extends State<BarberRegistrationScreen> {
   Position? _location;
   bool _isSaving = false;
   bool _isLocating = false;
+  bool _termsAccepted = false;
 
   @override
   void dispose() {
@@ -99,6 +102,10 @@ class _BarberRegistrationScreenState extends State<BarberRegistrationScreen> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!_termsAccepted) {
+      _showMessage('Please accept the Barber Terms & Conditions to continue.');
+      return;
+    }
     if (_shopPhotos.isEmpty) {
       _showMessage('Add at least one clear photo of the shop.');
       return;
@@ -137,6 +144,10 @@ class _BarberRegistrationScreenState extends State<BarberRegistrationScreen> {
         'email': _email.text.trim(),
         'userType': 'barber',
         'profileCompleted': true,
+        'termsAccepted': true,
+        'termsVersion': '2026-09-24',
+        'termsAcceptedAt': DateTime.now().toUtc().toIso8601String(),
+        'privacyAcknowledged': true,
         'hasPassword': true,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
         'shopName': shopName,
@@ -312,6 +323,14 @@ class _BarberRegistrationScreenState extends State<BarberRegistrationScreen> {
                   ],
                 ),
               ],
+              const SizedBox(height: 16),
+              SignupTermsConsent(
+                audience: LegalAudience.barber,
+                accepted: _termsAccepted,
+                onChanged: (accepted) {
+                  setState(() => _termsAccepted = accepted);
+                },
+              ),
               const SizedBox(height: 28),
               FilledButton(
                 onPressed: _isSaving ? null : _save,

@@ -156,6 +156,7 @@ class _BookingReceiptPageState extends State<BookingReceiptPage> {
       widget.appointment['reminderChannel'],
       fallback: 'calendar',
     );
+    final seat = _text(widget.appointment['seatName']);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
@@ -260,7 +261,7 @@ class _BookingReceiptPageState extends State<BookingReceiptPage> {
                 const SizedBox(height: 16),
                 _detailCard(
                   title: _shopName,
-                  subtitle: '$service\n$time',
+                  subtitle: '$service${seat.isEmpty ? '' : ' · $seat'}\n$time',
                   icon: Icons.content_cut_rounded,
                 ),
                 const SizedBox(height: 12),
@@ -268,6 +269,13 @@ class _BookingReceiptPageState extends State<BookingReceiptPage> {
                   title: 'Booking reference',
                   subtitle: _bookingReference,
                   icon: Icons.confirmation_number_outlined,
+                ),
+                const SizedBox(height: 12),
+                _detailCard(
+                  title: 'Pay at the shop',
+                  subtitle:
+                      'Pay your barber directly when you visit. KeshKart does not collect payment for this appointment.',
+                  icon: Icons.payments_outlined,
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -281,7 +289,7 @@ class _BookingReceiptPageState extends State<BookingReceiptPage> {
                 const SizedBox(height: 6),
                 Text(
                   reminder == 'calendar'
-                      ? 'Add this appointment to your calendar for free reminders.'
+                      ? 'Add this appointment to your calendar for reminders.'
                       : 'Your selected reminder channel is ${_label(reminder)}.',
                   style: const TextStyle(color: Color(0xFF54647A), height: 1.4),
                 ),

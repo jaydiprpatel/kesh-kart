@@ -14,6 +14,8 @@ import 'package:shimmer/shimmer.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:kesh_kart/bedrock_client.dart';
+import 'package:kesh_kart/customer/legal_document_page.dart';
+import 'package:kesh_kart/customer/signup_terms_consent.dart';
 import 'package:kesh_kart/services/notification_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -61,6 +63,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   double? _longitude;
 
   bool _isSubmitting = false;
+  bool _termsAccepted = false;
 
   final List<File> _pendingPhotoFiles = [];
 
@@ -179,6 +182,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         _isSubmitting
                             ? _buildBarberFormShimmer()
                             : _buildBarberFormFields(),
+
+                      const SizedBox(height: 18),
+                      SignupTermsConsent(
+                        audience:
+                            widget.role.trim().toLowerCase() == 'barber'
+                                ? LegalAudience.barber
+                                : LegalAudience.customer,
+                        accepted: _termsAccepted,
+                        onChanged: (accepted) {
+                          setState(() => _termsAccepted = accepted);
+                        },
+                      ),
 
                       const Spacer(),
 
@@ -483,6 +498,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _handleSubmit() async {
     final role = widget.role.trim().toLowerCase();
+    if (!_termsAccepted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please accept the Terms & Conditions to continue.'),
+        ),
+      );
+      return;
+    }
     final uid = widget.userId;
     final fullAddress = [
       _shopNumberController.text.trim(),
@@ -568,6 +591,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       'userType': role,
       'hasPassword': true,
       'profileCompleted': true,
+      'termsAccepted': true,
+      'termsVersion': '2026-09-24',
+      'termsAcceptedAt': DateTime.now().toUtc().toIso8601String(),
+      'privacyAcknowledged': true,
       'createdAt': DateTime.now().toIso8601String(),
     };
 

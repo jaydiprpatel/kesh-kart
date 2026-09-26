@@ -78,8 +78,17 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage> {
         'arrived',
         'in_progress',
       ].contains(row['status']) &&
-      appointmentMillis(row['slotStart']) >=
-          DateTime.now().millisecondsSinceEpoch;
+      _activeUntilMillis(row) >= DateTime.now().millisecondsSinceEpoch;
+
+  int _activeUntilMillis(Map<String, dynamic> row) {
+    final slotEnd = appointmentMillis(row['slotEnd']);
+    if (slotEnd > 0) return slotEnd;
+
+    final slotStart = appointmentMillis(row['slotStart']);
+    final duration = int.tryParse('${row['totalDurationMinutes'] ?? 30}') ?? 30;
+    return slotStart + duration.clamp(5, 360) * 60 * 1000;
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows =
@@ -134,7 +143,7 @@ class _CustomerBookingsPageState extends State<CustomerBookingsPage> {
                       ButtonSegment(
                         value: false,
                         icon: Icon(Icons.event_outlined),
-                        label: Text('Upcoming'),
+                        label: Text('Upcoming & active'),
                       ),
                       ButtonSegment(
                         value: true,

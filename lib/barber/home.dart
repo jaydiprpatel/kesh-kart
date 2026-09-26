@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kesh_kart/theme/keshkart_theme.dart';
 import 'package:kesh_kart/layout/keshkart_desktop_frame.dart';
 import '../services/realtime_service.dart';
+import '../services/in_app_update_service.dart';
 import 'dart:async';
 
 class BarberHome extends StatefulWidget {
@@ -162,6 +163,13 @@ class _BarberHomeState extends State<BarberHome> {
   List<String> _shopPhotos = [];
   List<Map<String, dynamic>> _todayAppointments = [];
   List<Map<String, dynamic>> _upcomingAppointments = [];
+  // A failed first query must not be presented as a confirmed empty diary.
+  // [BedrockClient.queryCollection] otherwise returns an empty list for a
+  // transient authentication/network response, which made bookings appear only
+  // after the barber manually refreshed this screen.
+  bool _hasLoadedAppointments = false;
+  bool _isLoadingAppointments = false;
+  String? _appointmentLoadError;
   Map<String, dynamic>? _subscription;
   bool _approvalCelebrationShowing = false;
 
@@ -181,6 +189,12 @@ class _BarberHomeState extends State<BarberHome> {
     super.initState();
     _loadDashboard();
     _startRealtime();
+    // This is deliberately barber-only. It is a no-op outside a Play-installed
+    // Android build, so customer web sessions and local development are never
+    // interrupted.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(checkForKeshKartAndroidUpdate());
+    });
   }
 
   @override
@@ -314,7 +328,7 @@ class _BarberHomeState extends State<BarberHome> {
       if (_realtime.isConnected) {
         _realtime.subscribeDocument(_shopId);
       }
-      await _loadTodayAppointments(setLoading: false);
+      await _loadTodayAppointments();
     }
 
     if (!mounted) return;
@@ -375,49 +389,77 @@ class _BarberHomeState extends State<BarberHome> {
     }
   }
 
-  Future<void> _loadTodayAppointments({bool setLoading = true}) async {
+  Future<void> _loadTodayAppointments({int attempt = 0}) async {
     if (_shopId.isEmpty) return;
-    final rows = await BedrockClient().queryCollection(
-      'appointments',
-      params: {'shopId': _shopId},
-    );
-    final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
-    final end =
-        DateTime(now.year, now.month, now.day + 1).millisecondsSinceEpoch;
-    final appointments =
-        rows
-            .map(_unwrapData)
-            .where((doc) => doc.isNotEmpty)
-            .where((doc) => _text(doc['shopId']) == _shopId)
-            .toList()
-          ..sort(
-            (a, b) => _millis(
-              a['slotStart'] ?? a['time'],
-            ).compareTo(_millis(b['slotStart'] ?? b['time'])),
-          );
-    final today =
-        appointments.where((doc) {
-          final slot = _millis(doc['slotStart'] ?? doc['time']);
-          return slot >= start && slot < end;
-        }).toList();
-    final upcoming =
-        appointments.where((doc) {
-          final slot = _millis(doc['slotStart'] ?? doc['time']);
-          return slot >= now.millisecondsSinceEpoch &&
-              const {
-                'booked',
-                'scheduled',
-                'confirmed',
-                'arrived',
-                'in_progress',
-              }.contains(_status(doc));
-        }).toList();
-    if (!mounted) return;
-    setState(() {
-      _todayAppointments = today;
-      _upcomingAppointments = upcoming;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoadingAppointments = true;
+        _appointmentLoadError = null;
+      });
+    }
+    try {
+      // Request an error instead of accepting [] when the first request is a
+      // temporary failure. An empty list is meaningful only after this query
+      // succeeds.
+      final rows = await BedrockClient().queryCollection(
+        'appointments',
+        params: {'shopId': _shopId},
+        throwOnError: true,
+      );
+      final now = DateTime.now();
+      final start =
+          DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+      final end =
+          DateTime(now.year, now.month, now.day + 1).millisecondsSinceEpoch;
+      final appointments =
+          rows
+              .map(_unwrapData)
+              .where((doc) => doc.isNotEmpty)
+              .where((doc) => _text(doc['shopId']) == _shopId)
+              .toList()
+            ..sort(
+              (a, b) => _millis(
+                a['slotStart'] ?? a['time'],
+              ).compareTo(_millis(b['slotStart'] ?? b['time'])),
+            );
+      final today =
+          appointments.where((doc) {
+            final slot = _millis(doc['slotStart'] ?? doc['time']);
+            return slot >= start && slot < end;
+          }).toList();
+      final upcoming =
+          appointments.where((doc) {
+            final slot = _millis(doc['slotStart'] ?? doc['time']);
+            return slot >= now.millisecondsSinceEpoch &&
+                const {
+                  'booked',
+                  'scheduled',
+                  'confirmed',
+                  'arrived',
+                  'in_progress',
+                }.contains(_status(doc));
+          }).toList();
+      if (!mounted) return;
+      setState(() {
+        _todayAppointments = today;
+        _upcomingAppointments = upcoming;
+        _hasLoadedAppointments = true;
+        _isLoadingAppointments = false;
+        _appointmentLoadError = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingAppointments = false);
+      if (attempt == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+        if (mounted) unawaited(_loadTodayAppointments(attempt: 1));
+      } else if (!_hasLoadedAppointments && mounted) {
+        setState(() {
+          _appointmentLoadError =
+              'Appointments could not be loaded. Pull down to retry.';
+        });
+      }
+    }
   }
 
   Future<void> _toggleOpen(bool value) async {
@@ -720,10 +762,13 @@ class _BarberHomeState extends State<BarberHome> {
           Row(
             children: [
               Expanded(
-                child: _pulseMetric(
-                  '${_todayAppointments.length}',
-                  'Today',
-                  Icons.calendar_month_rounded,
+                child: GestureDetector(
+                  onTap: _openQueue,
+                  child: _pulseMetric(
+                    '${_todayAppointments.length}',
+                    'Today',
+                    Icons.calendar_month_rounded,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -1097,7 +1142,22 @@ class _BarberHomeState extends State<BarberHome> {
           const SizedBox(width: 12),
           Expanded(
             child:
-                next == null
+                !_hasLoadedAppointments || _isLoadingAppointments
+                    ? const Row(
+                      children: [
+                        SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Loading upcoming appointments…',
+                          style: TextStyle(color: _muted, fontSize: 12),
+                        ),
+                      ],
+                    )
+                    : next == null
                     ? const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1261,6 +1321,36 @@ class _BarberHomeState extends State<BarberHome> {
   );
 
   Widget _buildAppointmentList() {
+    if (!_hasLoadedAppointments || _isLoadingAppointments) {
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: _cardDecoration(),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Loading today\'s appointments…',
+              style: TextStyle(color: _muted, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_appointmentLoadError != null) {
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: _cardDecoration(),
+        child: Text(
+          _appointmentLoadError!,
+          style: const TextStyle(color: _muted, fontSize: 13),
+        ),
+      );
+    }
     if (_todayAppointments.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(18),

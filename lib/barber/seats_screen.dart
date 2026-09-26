@@ -147,7 +147,7 @@ class _BarberSeatsScreenState extends State<BarberSeatsScreen> {
           children: [
             const Text('Manage names and availability of your salon seats.'),
             const Text(
-              'Seat changes do not change booking capacity or cancel existing appointments.',
+              'Only active seats appear to customers. A selected seat is reserved for its booked time.',
               style: TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 16),

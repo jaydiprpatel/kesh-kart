@@ -20,6 +20,9 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
   StreamSubscription<Map<String, dynamic>>? _realtimeSub;
   List<Map<String, dynamic>> _appointments = [];
   bool _isLoading = true;
+  // The first REST query is authoritative for the initial queue. A WebSocket
+  // snapshot can briefly be empty while its subscription is reconnecting.
+  bool _hasLoadedQueue = false;
   String? _error;
   bool _isOffline = false;
   bool _isRealtimeConnected = false;
@@ -53,14 +56,12 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
       if (mounted) {
         setState(() {
           _isRealtimeConnected = true;
-          _isOffline = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           _isRealtimeConnected = false;
-          _isOffline = true;
         });
       }
     }
@@ -88,7 +89,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
       if (mounted) {
         setState(() {
           _isRealtimeConnected = true;
-          _isOffline = false;
+          if (_hasLoadedQueue) _isOffline = false;
         });
       }
       return;
@@ -100,7 +101,6 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
       if (mounted) {
         setState(() {
           _isRealtimeConnected = false;
-          _isOffline = true;
         });
       }
       return;
@@ -118,9 +118,11 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
         if (mounted) {
           setState(() {
             _appointments = normalized;
-            _isLoading = false;
             _isRealtimeConnected = true;
-            _isOffline = false;
+            // Keep the first-screen loader visible until the REST query
+            // completes, so a transient empty socket snapshot cannot flash
+            // "No appointments" before the real queue arrives.
+            if (_hasLoadedQueue) _isOffline = false;
           });
         }
       }
@@ -208,34 +210,33 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
       if (mounted) {
         setState(() {
           _appointments = filtered;
+          _hasLoadedQueue = true;
           _isLoading = false;
           _isOffline = false;
+          _error = null;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _isOffline = true;
+          if (_hasLoadedQueue) {
+            // The existing queue is still safe to show while the next poll
+            // retries, but make the stale state visible.
+            _isOffline = true;
+          } else {
+            _isLoading = false;
+            _error =
+                'Unable to load appointments. Please refresh and try again.';
+          }
         });
       }
     }
   }
 
   bool _isVisibleQueueDoc(Map<String, dynamic> doc) {
-    const validStatus = {
-      'booked',
-      'scheduled',
-      'confirmed',
-      'arrived',
-      'in_progress',
-    };
-    if (doc['shopId'] != widget.shopId) return false;
-    if (!validStatus.contains(doc['status'])) return false;
-    final now = DateTime.now();
-    final startOfDayMillis =
-        DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
-    final slotStart = _millisFromValue(doc['slotStart']);
-    return slotStart >= startOfDayMillis;
+    // The server query is already scoped to this shop. Do not hide an existing
+    // booking again through a client-side status/date interpretation.
+    return doc['shopId'] == widget.shopId;
   }
 
   int _millisFromValue(dynamic value) {
@@ -545,6 +546,7 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             ? DateFormat('EEE, d MMM · h:mm a').format(slotStart)
             : 'Unknown time';
     final customerName = data['customerName'] ?? 'Customer';
+    final seatName = data['seatName']?.toString().trim() ?? '';
     final locationUnverified = data['location_unverified'] ?? false;
     final isLate = data['late'] ?? false;
 
@@ -600,6 +602,12 @@ class _QueueManagementScreenState extends State<QueueManagementScreen> {
             Row(
               children: [
                 Text('Status: ${status.toUpperCase()}'),
+                if (seatName.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  const Icon(Icons.chair_outlined, size: 16),
+                  const SizedBox(width: 4),
+                  Text(seatName),
+                ],
                 if (isLate) ...[
                   const SizedBox(width: 8),
                   Container(

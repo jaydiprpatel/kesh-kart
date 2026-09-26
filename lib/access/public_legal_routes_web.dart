@@ -23,6 +23,8 @@ Widget? _pageFor(String? routeName) {
       return const LegalDocumentPage(document: LegalDocument.privacy);
     case '/terms':
       return const LegalDocumentPage(document: LegalDocument.terms);
+    case '/delete-account':
+      return const AccountDeletionPage();
   }
   return null;
 }
